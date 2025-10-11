@@ -118,7 +118,7 @@ def start_video_stream(client):
                     ret, jpeg = cv2.imencode(".jpg", img)
                     jpg_as_text = base64.b64encode(jpeg).decode("utf-8")
 
-                    client.publish(stream_topic, jpg_as_text, qos=0)
+                    client.publish("camera/stream", jpg_as_text, qos=0)
 
                     time.sleep(0.1)
 
