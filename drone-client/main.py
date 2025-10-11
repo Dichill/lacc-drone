@@ -2,6 +2,7 @@ import picamera2  # camera module for RPi camera
 from picamera2 import Picamera2
 from picamera2.encoders import JpegEncoder, H264Encoder
 from picamera2.outputs import FileOutput, FfmpegOutput
+from threading import Condition
 
 import base64
 import datetime
@@ -28,6 +29,17 @@ broker_address = "localhost"
 broker_port = 1883
 command_topic = "drone/commands"
 stream_topic = "camera/stream"
+
+
+class StreamingOutput(io.BufferedIOBase):
+    def __init__(self):
+        self.frame = None
+        self.condition = Condition()
+
+    def write(self, buf):
+        with self.condition:
+            self.frame = buf
+            self.condition.notify_all()
 
 
 def process_command(command):
