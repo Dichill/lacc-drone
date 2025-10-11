@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SHPE LACC Drone Dashboard</title>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: #f5f5f5;
+            color: #333;
+            padding: 20px;
+            line-height: 1.6;
+        }
+
+        .header {
+            background: white;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 1.8em;
+            color: #0066CC;
+            margin-bottom: 5px;
+        }
+
+        .header p {
+            color: #666;
+            font-size: 0.95em;
+        }
+
+        .status {
+            display: inline-block;
+            margin-top: 10px;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            font-weight: 500;
+        }
+
+        .status.connected {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status.disconnected {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .dashboard {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 15px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+
+        .card h2 {
+            font-size: 1.1em;
+            color: #0066CC;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #f0f0f0;
+        }
+
+        .data-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #f5f5f5;
+        }
+
+        .data-row:last-child {
+            border-bottom: none;
+        }
+
+        .data-label {
+            color: #666;
+            font-size: 0.9em;
+        }
+
+        .data-value {
+            font-weight: 600;
+            color: #333;
+            text-align: right;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 0.85em;
+            font-weight: 600;
+        }
+
+        .badge.armed {
+            background: #ffebee;
+            color: #c62828;
+        }
+
+        .badge.disarmed {
+            background: #e8f5e9;
+            color: #2e7d32;
+        }
+
+        .badge.mode {
+            background: #e3f2fd;
+            color: #1565c0;
+        }
+
+        .altitude-display {
+            text-align: center;
+            padding: 30px;
+            margin: 10px 0;
+            background: #fafafa;
+            border-radius: 6px;
+        }
+
+        .altitude-display .value {
+            font-size: 2.5em;
+            font-weight: 700;
+            color: #0066CC;
+            margin-bottom: 5px;
+        }
+
+        .altitude-display .label {
+            font-size: 0.9em;
+            color: #666;
+        }
+
+        .battery-bar {
+            width: 100%;
+            height: 24px;
+            background: #f0f0f0;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 10px;
+        }
+
+        .battery-fill {
+            height: 100%;
+            background: #4caf50;
+            transition: width 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.8em;
+            font-weight: 600;
+            color: white;
+        }
+
+        .battery-fill.warning {
+            background: #ff9800;
+        }
+
+        .battery-fill.danger {
+            background: #f44336;
+        }
+
+        .timestamp {
+            text-align: center;
+            color: #999;
+            font-size: 0.85em;
+            margin-top: 20px;
+            padding: 10px;
+        }
+
+        .no-data {
+            text-align: center;
+            padding: 40px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+
+        .no-data h2 {
+            color: #666;
+            font-size: 1.2em;
+            margin-bottom: 10px;
+        }
+
+        .no-data p {
+            color: #999;
+        }
+
+        @media (max-width: 768px) {
+            .dashboard {
+                grid-template-columns: 1fr;
+            }
+            
+            .altitude-display .value {
+                font-size: 2em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Los Angeles City College</h1>
+        <p>Ground Station</p>
+        <span class="status disconnected" id="connection-status">Connecting...</span>
+    </div>
+
+    <div id="no-data" class="no-data">
+        <h2>Waiting for drone telemetry data</h2>
+        <p>Connect your drone client to start streaming data</p>
+    </div>
+
+    <div id="dashboard" class="dashboard" style="display: none;">
+        <!-- Flight Status -->
+        <div class="card">
+            <h2>Flight Status</h2>
+            <div class="data-row">
+                <span class="data-label">Armed</span>
+                <span class="data-value"><span id="armed" class="badge disarmed">DISARMED</span></span>
+            </div>
+            <div class="data-row">
+                <span class="data-label">Mode</span>
+                <span class="data-value"><span id="mode" class="badge mode">UNKNOWN</span></span>
+            </div>
+            <div class="data-row">
+                <span class="data-label">System Status</span>
+                <span class="data-value" id="system-status">N/A</span>
+            </div>
+            <div class="data-row">
+                <span class="data-label">EKF OK</span>
+                <span class="data-value" id="ekf-ok">N/A</span>
+            </div>
+        </div>
+
+        <!-- Altitude -->
+        <div class="card">
+            <h2>Altitude</h2>
+            <div class="altitude-display">
+                <div class="value" id="altitude">0.0</div>
+                <div class="label">meters</div>
+            </div>
+        </div>
+
+        <!-- GPS Location -->
+        <div class="card">
+            <h2>GPS Location</h2>
+            <div class="data-row">
+                <span class="data-label">Latitude</span>
+                <span class="data-value" id="latitude">0.0000000</span>
+            </div>
+            <div class="data-row">
+                <span class="data-label">Longitude</span>
+                <span class="data-value" id="longitude">0.0000000</span>
+            </div>
+            <div class="data-row">
+                <span class="data-label">Heading</span>
+                <span class="data-value"><span id="heading">0</span>°</span>
+            </div>
+            <div class="data-row">
+                <span class="data-label">Satellites</span>
+                <span class="data-value" id="satellites">0</span>
+            </div>
+        </div>
+
+        <!-- Attitude -->
+        <div class="card">
+            <h2>Attitude</h2>
+            <div class="data-row">
+                <span class="data-label">Pitch</span>
+                <span class="data-value"><span id="pitch">0.00</span>°</span>
+            </div>
+            <div class="data-row">
+                <span class="data-label">Roll</span>
+                <span class="data-value"><span id="roll">0.00</span>°</span>
+            </div>
+            <div class="data-row">
+                <span class="data-label">Yaw</span>
+                <span class="data-value"><span id="yaw">0.00</span>°</span>
+            </div>
+        </div>
+
+        <!-- Velocity -->
+        <div class="card">
+            <h2>Velocity</h2>
+            <div class="data-row">
+                <span class="data-label">Ground Speed</span>
+                <span class="data-value"><span id="groundspeed">0.00</span> m/s</span>
+            </div>
+            <div class="data-row">
+                <span class="data-label">Air Speed</span>
+                <span class="data-value"><span id="airspeed">0.00</span> m/s</span>
+            </div>
+        </div>
+
+        <!-- Battery -->
+        <div class="card">
+            <h2>Battery</h2>
+            <div class="data-row">
+                <span class="data-label">Voltage</span>
+                <span class="data-value"><span id="battery-voltage">0.0</span> V</span>
+            </div>
+            <div class="data-row">
+                <span class="data-label">Current</span>
+                <span class="data-value"><span id="battery-current">0.0</span> A</span>
+            </div>
+            <div class="data-row">
+                <span class="data-label">Level</span>
+                <span class="data-value"><span id="battery-level">0</span>%</span>
+            </div>
+            <div class="battery-bar">
+                <div class="battery-fill" id="battery-fill" style="width: 0%;">0%</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="timestamp" id="timestamp">Last Update: Never</div>
+
+    <script>
+        /**
+         * Socket.IO connection to the Flask server
+         */
+        const socket = io();
+
+        /**
+         * Connection status element
+         */
+        const connectionStatus = document.getElementById("connection-status");
+        const timestampEl = document.getElementById("timestamp");
+        const noDataEl = document.getElementById("no-data");
+        const dashboardEl = document.getElementById("dashboard");
+
+        /**
+         * Handle socket connection
+         */
+        socket.on("connect", () => {
+            console.log("[SocketIO] Connected to server");
+            connectionStatus.textContent = "Connected";
+            connectionStatus.className = "status connected";
+        });
+
+        /**
+         * Handle socket disconnection
+         */
+        socket.on("disconnect", () => {
+            console.log("[SocketIO] Disconnected from server");
+            connectionStatus.textContent = "Disconnected";
+            connectionStatus.className = "status disconnected";
+        });
+
+        /**
+         * Handle incoming drone telemetry data
+         */
+        socket.on("drone_telemetry", (data) => {
+            console.log("[Dashboard] Received telemetry:", data);
+            
+            // Hide "no data" message and show dashboard
+            noDataEl.style.display = "none";
+            dashboardEl.style.display = "grid";
+
+            // Update flight status
+            const armedEl = document.getElementById("armed");
+            armedEl.textContent = data.armed ? "ARMED" : "DISARMED";
+            armedEl.className = data.armed ? "badge armed" : "badge disarmed";
+
+            document.getElementById("mode").textContent = data.mode || "UNKNOWN";
+            document.getElementById("system-status").textContent = data.system_status || "N/A";
+            document.getElementById("ekf-ok").textContent = data.ekf_ok ? "Yes" : "No";
+
+            // Update altitude
+            if (data.location) {
+                document.getElementById("altitude").textContent = data.location.alt.toFixed(2);
+                document.getElementById("latitude").textContent = data.location.lat.toFixed(7);
+                document.getElementById("longitude").textContent = data.location.lon.toFixed(7);
+            }
+
+            // Update heading
+            document.getElementById("heading").textContent = data.heading || 0;
+
+            // Update GPS
+            if (data.gps) {
+                document.getElementById("satellites").textContent = data.gps.satellites || 0;
+            }
+
+            // Update attitude (convert radians to degrees)
+            if (data.attitude) {
+                document.getElementById("pitch").textContent = (data.attitude.pitch * 57.2958).toFixed(2);
+                document.getElementById("roll").textContent = (data.attitude.roll * 57.2958).toFixed(2);
+                document.getElementById("yaw").textContent = (data.attitude.yaw * 57.2958).toFixed(2);
+            }
+
+            // Update velocity
+            document.getElementById("groundspeed").textContent = (data.groundspeed || 0).toFixed(2);
+            document.getElementById("airspeed").textContent = (data.airspeed || 0).toFixed(2);
+
+            // Update battery
+            if (data.battery) {
+                document.getElementById("battery-voltage").textContent = data.battery.voltage.toFixed(2);
+                document.getElementById("battery-current").textContent = data.battery.current.toFixed(2);
+                document.getElementById("battery-level").textContent = data.battery.level;
+
+                const batteryFill = document.getElementById("battery-fill");
+                const level = data.battery.level;
+                batteryFill.style.width = level + "%";
+                batteryFill.textContent = level + "%";
+
+                // Update battery color based on level
+                batteryFill.classList.remove("warning", "danger");
+                if (level < 20) {
+                    batteryFill.classList.add("danger");
+                } else if (level < 40) {
+                    batteryFill.classList.add("warning");
+                }
+            }
+
+            // Update timestamp
+            const now = new Date();
+            timestampEl.textContent = "Last Update: " + now.toLocaleTimeString();
+        });
+
+        console.log("[Dashboard] Waiting for drone telemetry data...");
+    </script>
+</body>
+</html>
