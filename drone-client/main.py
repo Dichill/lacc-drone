@@ -100,6 +100,7 @@ def start_video_stream(client):
         camera.start_encoder(encoder)
         camera.start()
         output1.start()
+        time.sleep(20)
         output1.stop()
 
         while True:
