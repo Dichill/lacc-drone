@@ -22,7 +22,7 @@ import json
 import time
 
 # --- MQTT Configuration ---
-broker_address = "192.168.0.163"
+broker_address = "localhost"
 broker_port = 1883
 command_topic = "drone/commands"
 stream_topic = "camera/stream"
