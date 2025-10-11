@@ -1,4 +1,6 @@
+import base64
 import paho.mqtt.client as mqtt
+import cv2
 import json
 import time
 
@@ -30,8 +32,8 @@ def process_command(command):
             print("Action: Executing 'takeoff' command.")
         elif action == "land":
             print("Action: Executing 'land' command.")
-        elif action == "set_speed":
-            print(f"Action: Setting speed to {value}.")
+        elif action == "move":
+            print(f"Moved to {value}")
         else:
             print(f"Unknown command action: {action}")
 
@@ -65,6 +67,22 @@ def main():
         return
 
     client.loop_forever()
+
+    cap = cv2.VideoCapture(0)
+
+    while True:
+        ret, frame = cap.read()
+        if ret:
+            _, buffer = cv2.imencode(".jpg", frame)
+            jpg_as_text = base64.b64encode(buffer).decode("utf-8")
+
+            client.publish("camera/stream", jpg_as_text)
+
+        if cv2.waitKey(1) & 0xFF == ord("q"):
+            break
+
+    cap.release()
+    cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":
