@@ -3,6 +3,7 @@ from picamera2 import Picamera2
 from picamera2.encoders import JpegEncoder, H264Encoder
 from picamera2.outputs import FileOutput, FfmpegOutput
 from threading import Condition
+import io
 
 import base64
 import datetime
