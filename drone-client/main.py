@@ -15,14 +15,22 @@ import time
 # On a Raspberry Pi, the serial port is typically /dev/serial0
 # The baud rate must match the SERIAL2_BAUD setting on your Pixhawk.
 # master = mavutil.mavlink_connection("/dev/serial0", baud=57600)
+import base64
+import paho.mqtt.client as mqtt
+import cv2
+import json
+import time
+
+# --- MQTT Configuration ---
 broker_address = "192.168.0.163"
 broker_port = 1883
 command_topic = "drone/commands"
+stream_topic = "camera/stream"
 
 
 def process_command(command):
     """Parses a command and takes action on the drone."""
-    print(f"Received command: {command}")
+    print(f"Processing command: {command}")
     try:
         data = json.loads(command)
         action = data.get("action")
@@ -30,10 +38,13 @@ def process_command(command):
 
         if action == "takeoff":
             print("Action: Executing 'takeoff' command.")
+            # mavutil.set_mode_auto()  # Example MAVLink command
         elif action == "land":
             print("Action: Executing 'land' command.")
+            # Add MAVLink land command here
         elif action == "move":
             print(f"Moved to {value}")
+            # Add MAVLink movement command here
         else:
             print(f"Unknown command action: {action}")
 
@@ -55,6 +66,37 @@ def on_message(client, userdata, msg):
     process_command(payload)
 
 
+def start_video_stream(client):
+    """Handles video capture and streaming."""
+    cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        print("Error: Could not open video device.")
+        return
+
+    print("Starting video stream...")
+    try:
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                print("Failed to grab frame.")
+                break
+
+            _, buffer = cv2.imencode(".jpg", frame)
+            jpg_as_text = base64.b64encode(buffer).decode("utf-8")
+
+            client.publish(stream_topic, jpg_as_text, qos=0)
+
+            time.sleep(0.1)
+
+            if cv2.waitKey(1) & 0xFF == ord("q"):
+                break
+    except KeyboardInterrupt:
+        print("Stopping video stream.")
+    finally:
+        cap.release()
+        cv2.destroyAllWindows()
+
+
 def main():
     client = mqtt.Client()
     client.on_connect = on_connect
@@ -66,23 +108,12 @@ def main():
         print(f"Could not connect to broker: {e}")
         return
 
-    client.loop_forever()
+    client.loop_start()
 
-    cap = cv2.VideoCapture(0)
+    start_video_stream(client)
 
-    while True:
-        ret, frame = cap.read()
-        if ret:
-            _, buffer = cv2.imencode(".jpg", frame)
-            jpg_as_text = base64.b64encode(buffer).decode("utf-8")
-
-            client.publish("camera/stream", jpg_as_text)
-
-        if cv2.waitKey(1) & 0xFF == ord("q"):
-            break
-
-    cap.release()
-    cv2.destroyAllWindows()
+    client.loop_stop()
+    client.disconnect()
 
 
 if __name__ == "__main__":
