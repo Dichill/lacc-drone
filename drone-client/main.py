@@ -1,4 +1,6 @@
 import base64
+import datetime
+import numpy as np
 import paho.mqtt.client as mqtt
 import cv2
 import json
@@ -15,11 +17,6 @@ import time
 # On a Raspberry Pi, the serial port is typically /dev/serial0
 # The baud rate must match the SERIAL2_BAUD setting on your Pixhawk.
 # master = mavutil.mavlink_connection("/dev/serial0", baud=57600)
-import base64
-import paho.mqtt.client as mqtt
-import cv2
-import json
-import time
 
 # --- MQTT Configuration ---
 broker_address = "localhost"
@@ -68,35 +65,47 @@ def on_message(client, userdata, msg):
 
 def start_video_stream(client):
     """Handles video capture and streaming."""
-    cap = cv2.VideoCapture(0)
-    cap.set(cv2.CAP_PROP_FPS, 5000)
+    now = datetime.datetime.now()
+    timestamp_string = now.strftime("%Y-%m-%d_%H-%M-%S")
 
-    if not cap.isOpened():
-        print("Error: Could not open video device.")
-        return
+    with Picamera2() as camera:
+        camera.configure(camera.create_video_configuration(main={"size": (640, 480)}))
+        encoder = JpegEncoder()
+        output1 = FfmpegOutput(
+            f"/records/{timestamp_string}.mp4", audio=False
+        )  # Optional file recording
+        output3 = StreamingOutput()
+        output2 = FileOutput(output3)
+        encoder.output = [output1, output2]
 
-    print("Starting video stream...")
-    try:
+        # Start the camera and encoder
+        camera.start_encoder(encoder)
+        camera.start()
+        output1.start()
+        output1.stop()
+
         while True:
-            ret, frame = cap.read()
-            if not ret:
-                print("Failed to grab frame.")
-                break
+            with output3.condition:
+                output3.condition.wait()
+                frame = output3.frame
 
-            _, buffer = cv2.imencode(".jpg", frame)
-            jpg_as_text = base64.b64encode(buffer).decode("utf-8")
+                if frame:
+                    img_array = np.frombuffer(frame, dtype=np.uint8)
 
-            client.publish(stream_topic, jpg_as_text, qos=0)
+                    img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
 
-            time.sleep(0.1)
+                    # Paola, this will be the grayscaled image which you would use for ArUco Marker Detection.
+                    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-            if cv2.waitKey(1) & 0xFF == ord("q"):
-                break
-    except KeyboardInterrupt:
-        print("Stopping video stream.")
-    finally:
-        cap.release()
-        cv2.destroyAllWindows()
+                    ret, jpeg = cv2.imencode(".jpg", img)
+                    jpg_as_text = base64.b64encode(jpeg).decode("utf-8")
+
+                    client.publish(stream_topic, jpg_as_text, qos=0)
+
+                    time.sleep(0.1)
+
+                    if cv2.waitKey(1) & 0xFF == ord("q"):
+                        break
 
 
 def main():
