@@ -123,6 +123,8 @@ def start_video_stream(client):
 
                     time.sleep(0.1)
 
+                    cv2.imshow("Camera", frame)
+
                     if cv2.waitKey(1) & 0xFF == ord("q"):
                         break
 
