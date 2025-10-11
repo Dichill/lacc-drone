@@ -69,6 +69,8 @@ def on_message(client, userdata, msg):
 def start_video_stream(client):
     """Handles video capture and streaming."""
     cap = cv2.VideoCapture(0)
+    cap.set(cv2.CAP_PROP_FPS, 5000)
+
     if not cap.isOpened():
         print("Error: Could not open video device.")
         return
