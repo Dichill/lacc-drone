@@ -90,7 +90,7 @@ def start_video_stream(client):
         camera.configure(camera.create_video_configuration(main={"size": (640, 480)}))
         encoder = JpegEncoder()
         output1 = FfmpegOutput(
-            f"/records/{timestamp_string}.mp4", audio=False
+            f"./records/{timestamp_string}.mp4", audio=False
         )  # Optional file recording
         output3 = StreamingOutput()
         output2 = FileOutput(output3)
