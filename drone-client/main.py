@@ -1,4 +1,4 @@
-import picamera2  # camera module for RPi camera
+import picamera2
 from picamera2 import Picamera2
 from picamera2.encoders import JpegEncoder, H264Encoder
 from picamera2.outputs import FileOutput, FfmpegOutput
@@ -13,17 +13,13 @@ import cv2
 import json
 import time
 
-"""
-
-    MAVLINK
-
-"""
-# from pymavlink import mavutil
+from pymavlink import mavutil
+from logger import get_logger, init_logger, close_logger
 
 # --- Connection to Pixhawk via serial port ---
 # On a Raspberry Pi, the serial port is typically /dev/serial0
 # The baud rate must match the SERIAL2_BAUD setting on your Pixhawk.
-# master = mavutil.mavlink_connection("/dev/serial0", baud=57600)
+master = mavutil.mavlink_connection("/dev/serial0", baud=57600)
 
 # --- MQTT Configuration ---
 broker_address = "localhost"
@@ -43,109 +39,143 @@ class StreamingOutput(io.BufferedIOBase):
             self.condition.notify_all()
 
 
-def process_command(command):
-    """Parses a command and takes action on the drone."""
-    print(f"Processing command: {command}")
+def process_command(command: str) -> None:
+    logger = get_logger()
+    logger.info("Processing command", command=command)
     try:
-        data = json.loads(command)
-        action = data.get("action")
-        value = data.get("value")
+        data: dict = json.loads(command)
+        action: str = data.get("action", "")
+        value: str = data.get("value", "")
 
         if action == "takeoff":
-            print("Action: Executing 'takeoff' command.")
-            # mavutil.set_mode_auto()  # Example MAVLink command
+            logger.event("TAKEOFF_COMMAND")
+            logger.info("Action: Executing 'takeoff' command")
         elif action == "land":
-            print("Action: Executing 'land' command.")
-            # Add MAVLink land command here
+            logger.event("LAND_COMMAND")
+            logger.info("Action: Executing 'land' command")
+            master.set_mode("LAND")
+
+            time.sleep(1)
+
+            while master.motors_armed():
+                logger.info("Waiting for vehicle to disarm...")
+                time.sleep(1)
+
+            logger.event("LANDING_COMPLETE")
+            logger.info("Landing complete")
+
         elif action == "move":
-            print(f"Moved to {value}")
-            # Add MAVLink movement command here
+            logger.event("MOVE_COMMAND", value=value)
+            logger.info(f"Moved to {value}", destination=value)
         else:
-            print(f"Unknown command action: {action}")
+            logger.warning(f"Unknown command action: {action}", action=action)
 
-    except json.JSONDecodeError:
-        print("Received non-JSON message, ignoring.")
+    except json.JSONDecodeError as e:
+        logger.warning("Received non-JSON message, ignoring", error=str(e))
 
 
-def on_connect(client, userdata, flags, rc):
-    """Callback for when the client connects to the broker."""
-    print(f"Connected to MQTT Broker with result code {rc}")
+def on_connect(client, userdata, flags, rc: int) -> None:
+    logger = get_logger()
+    logger.event("MQTT_CONNECTED", result_code=rc)
+    logger.info(f"Connected to MQTT Broker with result code {rc}", result_code=rc)
     client.subscribe(command_topic)
-    print(f"Subscribed to topic: {command_topic}")
+    logger.info(f"Subscribed to topic: {command_topic}", topic=command_topic)
 
 
-def on_message(client, userdata, msg):
-    """Callback for when a message is received on a subscribed topic."""
-    payload = msg.payload.decode()
-    print(f"[{msg.topic}] {payload}")
+def on_message(client, userdata, msg) -> None:
+    logger = get_logger()
+    payload: str = msg.payload.decode()
+    logger.info(f"[{msg.topic}] {payload}", topic=msg.topic, payload=payload)
     process_command(payload)
 
 
-def start_video_stream(client):
-    """Handles video capture and streaming."""
-    now = datetime.datetime.now()
-    timestamp_string = now.strftime("%Y-%m-%d_%H-%M-%S")
+def start_video_stream(client) -> None:
+    logger = get_logger()
+    logger.event("VIDEO_STREAM_START")
+    
+    now: datetime.datetime = datetime.datetime.now()
+    timestamp_string: str = now.strftime("%Y-%m-%d_%H-%M-%S")
+    video_file: str = f"./records/{timestamp_string}.mp4"
+    
+    logger.info("Starting video stream", video_file=video_file)
 
     with Picamera2() as camera:
         camera.configure(camera.create_video_configuration(main={"size": (640, 480)}))
-        encoder = JpegEncoder()
-        output1 = FfmpegOutput(
-            f"./records/{timestamp_string}.mp4", audio=False
-        )  # Optional file recording
-        output3 = StreamingOutput()
-        output2 = FileOutput(output3)
+        encoder: JpegEncoder = JpegEncoder()
+        output1: FfmpegOutput = FfmpegOutput(video_file, audio=False)
+        output3: StreamingOutput = StreamingOutput()
+        output2: FileOutput = FileOutput(output3)
         encoder.output = [output1, output2]
 
-        # Start the camera and encoder
         camera.start_encoder(encoder)
         camera.start()
         output1.start()
+        logger.info("Camera encoder started")
+        
         time.sleep(20)
         output1.stop()
+        logger.info("Video recording stopped")
 
+        frame_count: int = 0
         while True:
             with output3.condition:
                 output3.condition.wait()
                 frame = output3.frame
 
                 if frame:
-                    img_array = np.frombuffer(frame, dtype=np.uint8)
-
+                    img_array: np.ndarray = np.frombuffer(frame, dtype=np.uint8)
                     img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
-
-                    # Paola, this will be the grayscaled image which you would use for ArUco Marker Detection.
                     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
                     ret, jpeg = cv2.imencode(".jpg", img)
-                    jpg_as_text = base64.b64encode(jpeg).decode("utf-8")
+                    jpg_as_text: str = base64.b64encode(jpeg).decode("utf-8")
 
                     client.publish("camera/stream", jpg_as_text, qos=0)
+                    
+                    frame_count += 1
+                    if frame_count % 100 == 0:
+                        logger.metric("frames_streamed", frame_count, "frames")
 
                     time.sleep(0.1)
 
-                    cv2.imshow("Camera", frame)
-
                     if cv2.waitKey(1) & 0xFF == ord("q"):
+                        logger.event("VIDEO_STREAM_STOP", frames_streamed=frame_count)
+                        logger.info("Video stream stopped by user")
                         break
 
 
-def main():
-    client = mqtt.Client()
+def main() -> None:
+    logger = init_logger()
+    logger.event("SYSTEM_START")
+    logger.info("Drone client starting")
+    
+    client: mqtt.Client = mqtt.Client()
     client.on_connect = on_connect
     client.on_message = on_message
 
     try:
+        logger.info(f"Connecting to MQTT broker at {broker_address}:{broker_port}", 
+                   broker=broker_address, port=broker_port)
         client.connect(broker_address, broker_port, 60)
+        logger.event("MQTT_CONNECTION_INITIATED")
     except Exception as e:
-        print(f"Could not connect to broker: {e}")
+        logger.error(f"Could not connect to broker: {e}", error=str(e), error_type=type(e).__name__)
+        close_logger()
         return
 
     client.loop_start()
+    logger.info("MQTT loop started")
 
-    start_video_stream(client)
-
-    client.loop_stop()
-    client.disconnect()
+    try:
+        start_video_stream(client)
+    except Exception as e:
+        logger.error(f"Video stream error: {e}", error=str(e), error_type=type(e).__name__)
+    finally:
+        client.loop_stop()
+        client.disconnect()
+        logger.event("SYSTEM_SHUTDOWN")
+        logger.info("Drone client shutting down")
+        close_logger()
 
 
 if __name__ == "__main__":
