@@ -12,6 +12,8 @@ import paho.mqtt.client as mqtt
 import cv2
 import json
 import time
+import os
+from typing import Optional
 
 from pymavlink import mavutil
 from logger import get_logger, init_logger, close_logger
@@ -31,6 +33,25 @@ aruco_topic = "drone/aruco_detection"
 # --- ArUco Configuration ---
 aruco_dict = cv2.aruco.Dictionary_get(cv2.aruco.DICT_4X4_50)
 aruco_params = cv2.aruco.DetectorParameters_create()
+
+# --- Camera Calibration ---
+camera_matrix: Optional[np.ndarray] = None
+dist_coeffs: Optional[np.ndarray] = None
+calibration_loaded: bool = False
+
+# Try to load camera calibration
+calibration_file: str = "camera_calibration.npz"
+try:
+    if os.path.exists(calibration_file):
+        calib_data = np.load(calibration_file)
+        camera_matrix = calib_data["camera_matrix"]
+        dist_coeffs = calib_data["dist_coeffs"]
+        calibration_loaded = True
+        print(f"✓ Camera calibration loaded from {calibration_file}")
+    else:
+        print(f"⚠ No camera calibration found. Run 'python calibrate_camera.py' for better accuracy")
+except Exception as e:
+    print(f"⚠ Could not load calibration: {e}")
 
 # --- Global State ---
 centering_mode: bool = False  # Track if drone should center on ArUco marker
@@ -299,6 +320,11 @@ def start_video_stream(client) -> None:
                 if frame:
                     img_array: np.ndarray = np.frombuffer(frame, dtype=np.uint8)
                     img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+                    
+                    # Apply lens distortion correction if calibration is available
+                    if calibration_loaded and camera_matrix is not None and dist_coeffs is not None:
+                        img = cv2.undistort(img, camera_matrix, dist_coeffs)
+                    
                     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
                     corners, ids, rejected = cv2.aruco.detectMarkers(gray, aruco_dict, parameters=aruco_params)

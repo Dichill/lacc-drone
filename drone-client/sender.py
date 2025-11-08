@@ -54,17 +54,15 @@ def on_message(client: mqtt.Client, userdata: object, msg) -> None:
             if latest_frame is not None:
                 frame_counter += 1
                 if not first_frame_received:
-                    print("\n✓ First frame received! Video should now display.")
+                    print("✓ Video feed connected")
                     first_frame_received = True
-                elif frame_counter % 100 == 0:
-                    print(f"\r📹 Frames: {frame_counter}", end="", flush=True)
             
         elif msg.topic == ARUCO_TOPIC:
             detection_json: str = msg.payload.decode("utf-8")
             aruco_detection_data = json.loads(detection_json)
             
     except Exception as e:
-        print(f"\n✗ Error processing message from {msg.topic}: {e}")
+        print(f"✗ Error processing message from {msg.topic}: {e}")
 
 
 def send_command(client: mqtt.Client, action: str, value: Optional[str] = None, **kwargs) -> bool:
@@ -124,7 +122,7 @@ def start_video_window() -> None:
             cv2.namedWindow("Drone Camera Feed", cv2.WINDOW_NORMAL)
             cv2.resizeWindow("Drone Camera Feed", 800, 600)
             video_window_active = True
-            print("📹 Video window opened successfully")
+            print("✓ Video window opened")
         except Exception as e:
             print(f"✗ Error opening video window: {e}")
             video_window_active = False
@@ -137,8 +135,8 @@ def update_video_display() -> None:
         try:
             cv2.imshow("Drone Camera Feed", latest_frame)
             cv2.waitKey(1)
-        except Exception as e:
-            print(f"\n✗ Error displaying frame: {e}")
+        except Exception:
+            pass 
 
 
 def close_video_window() -> None:
@@ -183,10 +181,6 @@ def interactive_mode(client: mqtt.Client) -> None:
     print("\n" + "=" * 60 + "\n")
     
     start_video_window()
-    
-    print("ℹ Waiting for video stream from drone...")
-    print("ℹ Make sure main.py is running on the drone/Pi")
-    print()
     
     input_thread: Thread = Thread(target=input_thread_func, daemon=True)
     input_thread.start()
