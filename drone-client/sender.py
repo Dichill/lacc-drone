@@ -7,6 +7,7 @@ import numpy as np
 import base64
 from typing import Dict, Optional
 from threading import Thread
+import queue
 
 
 BROKER_ADDRESS: str = "192.168.0.163"
@@ -18,6 +19,10 @@ ARUCO_TOPIC: str = "drone/aruco_detection"
 latest_frame: Optional[np.ndarray] = None
 aruco_detection_data: Optional[Dict] = None
 video_window_active: bool = False
+command_queue: queue.Queue = queue.Queue()
+running: bool = True
+frame_counter: int = 0
+first_frame_received: bool = False
 
 
 def on_connect(client: mqtt.Client, userdata: object, flags: Dict, rc: int) -> None:
@@ -37,7 +42,7 @@ def on_publish(client: mqtt.Client, userdata: object, mid: int) -> None:
 
 def on_message(client: mqtt.Client, userdata: object, msg) -> None:
     """Handle incoming MQTT messages for video stream and ArUco detection."""
-    global latest_frame, aruco_detection_data
+    global latest_frame, aruco_detection_data, frame_counter, first_frame_received
     
     try:
         if msg.topic == STREAM_TOPIC:
@@ -46,12 +51,20 @@ def on_message(client: mqtt.Client, userdata: object, msg) -> None:
             jpg_as_np: np.ndarray = np.frombuffer(jpg_original, dtype=np.uint8)
             latest_frame = cv2.imdecode(jpg_as_np, cv2.IMREAD_COLOR)
             
+            if latest_frame is not None:
+                frame_counter += 1
+                if not first_frame_received:
+                    print("\n✓ First frame received! Video should now display.")
+                    first_frame_received = True
+                elif frame_counter % 100 == 0:
+                    print(f"\r📹 Frames: {frame_counter}", end="", flush=True)
+            
         elif msg.topic == ARUCO_TOPIC:
             detection_json: str = msg.payload.decode("utf-8")
             aruco_detection_data = json.loads(detection_json)
             
     except Exception as e:
-        print(f"✗ Error processing message from {msg.topic}: {e}")
+        print(f"\n✗ Error processing message from {msg.topic}: {e}")
 
 
 def send_command(client: mqtt.Client, action: str, value: Optional[str] = None, **kwargs) -> bool:
@@ -81,7 +94,6 @@ def send_command(client: mqtt.Client, action: str, value: Optional[str] = None, 
 
 
 def send_takeoff(client: mqtt.Client, altitude: float = 5.0) -> bool:
-    """Send takeoff command with optional altitude parameter (default: 5.0 meters)"""
     return send_command(client, "takeoff", altitude=altitude)
 
 
@@ -94,95 +106,65 @@ def send_move(client: mqtt.Client, destination: str) -> bool:
 
 
 def send_auto_land(client: mqtt.Client) -> bool:
-    """Send auto-land command to land on detected ArUco marker."""
     return send_command(client, "auto_land")
 
 
 def send_enable_centering(client: mqtt.Client) -> bool:
-    """Enable centering mode to track ArUco marker."""
     return send_command(client, "enable_centering")
 
 
 def send_disable_centering(client: mqtt.Client) -> bool:
-    """Disable centering mode."""
     return send_command(client, "disable_centering")
 
 
-def display_video_stream() -> None:
-    """Display video stream with ArUco marker overlays in a separate thread."""
-    global latest_frame, aruco_detection_data, video_window_active
+def start_video_window() -> None:
+    global video_window_active
+    if not video_window_active:
+        try:
+            cv2.namedWindow("Drone Camera Feed", cv2.WINDOW_NORMAL)
+            cv2.resizeWindow("Drone Camera Feed", 800, 600)
+            video_window_active = True
+            print("📹 Video window opened successfully")
+        except Exception as e:
+            print(f"✗ Error opening video window: {e}")
+            video_window_active = False
+
+
+def update_video_display() -> None:
+    global latest_frame
     
-    video_window_active = True
-    window_name: str = "Drone Camera Feed - Press 'q' to close"
-    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-    cv2.resizeWindow(window_name, 800, 600)
-    
-    print("\n📹 Video feed window opened")
-    print("Controls:")
-    print("  'q' - Close video window")
-    print("  'c' - Enable centering mode")
-    print("  'd' - Disable centering mode")
-    print("  'l' - Auto-land on marker\n")
-    
-    while video_window_active:
-        if latest_frame is not None:
-            display_frame: np.ndarray = latest_frame.copy()
-            
-            if aruco_detection_data is not None and aruco_detection_data.get("detected", False):
-                markers = aruco_detection_data.get("markers", [])
-                
-                for marker in markers:
-                    marker_id: int = marker.get("id", -1)
-                    center_x: float = marker.get("center_x", 0)
-                    center_y: float = marker.get("center_y", 0)
-                    
-                    center_point = (int(center_x), int(center_y))
-                    cv2.circle(display_frame, center_point, 5, (0, 255, 0), -1)
-                    
-                    cv2.line(display_frame, (int(center_x) - 20, int(center_y)), 
-                            (int(center_x) + 20, int(center_y)), (0, 255, 0), 2)
-                    cv2.line(display_frame, (int(center_x), int(center_y) - 20), 
-                            (int(center_x), int(center_y) + 20), (0, 255, 0), 2)
-                    
-                    text: str = f"ID: {marker_id}"
-                    cv2.putText(display_frame, text, (int(center_x) + 10, int(center_y) - 10),
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-                
-                status_text: str = f"Markers Detected: {len(markers)}"
-                cv2.putText(display_frame, status_text, (10, 30),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-            else:
-                cv2.putText(display_frame, "No ArUco Markers Detected", (10, 30),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-            
-            height, width = display_frame.shape[:2]
-            center_x: int = width // 2
-            center_y: int = height // 2
-            cv2.line(display_frame, (center_x - 30, center_y), 
-                    (center_x + 30, center_y), (255, 0, 0), 1)
-            cv2.line(display_frame, (center_x, center_y - 30), 
-                    (center_x, center_y + 30), (255, 0, 0), 1)
-            
-            cv2.imshow(window_name, display_frame)
-        
-        key: int = cv2.waitKey(1) & 0xFF
-        if key == ord("q"):
-            print("✓ Closing video window...")
+    if latest_frame is not None and video_window_active:
+        try:
+            cv2.imshow("Drone Camera Feed", latest_frame)
+            cv2.waitKey(1)
+        except Exception as e:
+            print(f"\n✗ Error displaying frame: {e}")
+
+
+def close_video_window() -> None:
+    global video_window_active
+    if video_window_active:
+        cv2.destroyAllWindows()
+        video_window_active = False
+        print("✓ Video window closed")
+
+
+def input_thread_func() -> None:
+    global running
+    while running:
+        try:
+            user_input: str = input("Enter command: ").strip().lower()
+            if user_input:
+                command_queue.put(user_input)
+        except EOFError:
             break
-        elif key == ord("c"):
-            print("→ Enabling centering mode...")
-        elif key == ord("d"):
-            print("→ Disabling centering mode...")
-        elif key == ord("l"):
-            print("→ Initiating auto-land...")
-    
-    video_window_active = False
-    cv2.destroyAllWindows()
-    print("✓ Video feed closed")
+        except Exception as e:
+            print(f"✗ Input error: {e}")
+            break
 
 
 def interactive_mode(client: mqtt.Client) -> None:
-    global video_window_active
+    global video_window_active, running
     
     print("\n" + "=" * 60)
     print("LACC DRONE | CLI")
@@ -196,16 +178,29 @@ def interactive_mode(client: mqtt.Client) -> None:
     print("  6. disable_centering   - Disable marker centering mode")
     print("  7. video               - Open/close video feed window")
     print("  8. custom              - Send a custom JSON command")
+    print("  status                 - Show video feed and connection status")
     print("  9. quit                - Exit the program")
     print("\n" + "=" * 60 + "\n")
     
-    video_thread: Thread = Thread(target=display_video_stream, daemon=True)
-    video_thread.start()
+    start_video_window()
+    
+    print("ℹ Waiting for video stream from drone...")
+    print("ℹ Make sure main.py is running on the drone/Pi")
+    print()
+    
+    input_thread: Thread = Thread(target=input_thread_func, daemon=True)
+    input_thread.start()
 
-    while True:
+    while running:
+        update_video_display()
+        
         try:
-            command_input: str = input("Enter command: ").strip().lower()
+            command_input: str = command_queue.get_nowait()
+        except queue.Empty:
+            time.sleep(0.001)  # 1ms delay to prevent busy waiting
+            continue
 
+        try:
             if not command_input:
                 continue
 
@@ -215,19 +210,14 @@ def interactive_mode(client: mqtt.Client) -> None:
                 or command_input == "q"
             ):
                 print("\n✓ Exiting...")
+                running = False
+                close_video_window()
                 break
 
             elif command_input.startswith("takeoff") or command_input == "1":
+                altitude: float = 5.0
                 if command_input == "1":
-                    altitude_input: str = input("Enter altitude in meters (default: 5.0): ").strip()
-                    if altitude_input:
-                        try:
-                            altitude: float = float(altitude_input)
-                        except ValueError:
-                            print("✗ Invalid altitude. Using default (5.0m)")
-                            altitude = 5.0
-                    else:
-                        altitude = 5.0
+                    print("Using default altitude: 5.0m (type 'takeoff <altitude>' to specify)")
                 else:
                     parts = command_input.split()
                     if len(parts) > 1:
@@ -236,8 +226,6 @@ def interactive_mode(client: mqtt.Client) -> None:
                         except ValueError:
                             print("✗ Invalid altitude. Using default (5.0m)")
                             altitude = 5.0
-                    else:
-                        altitude = 5.0
                 
                 send_takeoff(client, altitude)
 
@@ -246,13 +234,14 @@ def interactive_mode(client: mqtt.Client) -> None:
 
             elif command_input.startswith("move") or command_input == "3":
                 if command_input == "3":
-                    destination: str = input("Enter destination: ").strip()
+                    print("✗ Usage: move <destination>")
+                    continue
                 else:
                     parts = command_input.split(maxsplit=1)
                     if len(parts) < 2:
                         print("✗ Usage: move <destination>")
                         continue
-                    destination = parts[1]
+                    destination: str = parts[1]
 
                 send_move(client, destination)
 
@@ -274,16 +263,33 @@ def interactive_mode(client: mqtt.Client) -> None:
             elif command_input == "video" or command_input == "7":
                 if not video_window_active:
                     print("→ Opening video feed window...")
-                    video_thread = Thread(target=display_video_stream, daemon=True)
-                    video_thread.start()
+                    start_video_window()
                 else:
-                    print("ℹ Video window is already active")
+                    print("→ Closing video feed window...")
+                    close_video_window()
+            
+            elif command_input == "status":
+                print(f"\n📊 Status:")
+                print(f"  Video window active: {video_window_active}")
+                print(f"  Frames received: {frame_counter}")
+                print(f"  Latest frame: {'Available' if latest_frame is not None else 'None'}")
+                if latest_frame is not None:
+                    height, width = latest_frame.shape[:2]
+                    print(f"  Frame size: {width}x{height}")
+                print(f"  ArUco markers detected: {aruco_detection_data.get('detected', False) if aruco_detection_data else False}")
+                print()
 
-            elif command_input == "custom" or command_input == "8":
-                print(
-                    '\nEnter custom JSON command (e.g., {"action": "test", "value": "123"}):'
-                )
-                json_input: str = input("> ").strip()
+            elif command_input.startswith("custom") or command_input == "8":
+                if command_input == "8" or command_input == "custom":
+                    print('✗ Usage: custom {"action": "test", "value": "123"}')
+                    continue
+                
+                json_start: int = command_input.find("{")
+                if json_start == -1:
+                    print('✗ Usage: custom {"action": "test", "value": "123"}')
+                    continue
+                    
+                json_input: str = command_input[json_start:].strip()
 
                 try:
                     parsed_json: Dict = json.loads(json_input)
@@ -306,9 +312,13 @@ def interactive_mode(client: mqtt.Client) -> None:
 
         except KeyboardInterrupt:
             print("\n\n✓ Interrupted by user. Exiting...")
+            running = False
+            close_video_window()
             break
         except Exception as e:
             print(f"✗ Error: {e}")
+    
+    close_video_window()
 
 
 def main() -> None:

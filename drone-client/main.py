@@ -340,7 +340,8 @@ def start_video_stream(client) -> None:
                     detection_json: str = json.dumps(detection_data)
                     client.publish(aruco_topic, detection_json, qos=0)
                     
-                    ret, jpeg = cv2.imencode(".jpg", img)
+                    encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 85]
+                    ret, jpeg = cv2.imencode(".jpg", img, encode_param)
                     jpg_as_text: str = base64.b64encode(jpeg).decode("utf-8")
                     client.publish(stream_topic, jpg_as_text, qos=0)
 
@@ -348,7 +349,7 @@ def start_video_stream(client) -> None:
                     if frame_count % 100 == 0:
                         logger.metric("frames_streamed", frame_count, "frames")
 
-                    time.sleep(0.1)
+                    time.sleep(0.033)
 
                     if cv2.waitKey(1) & 0xFF == ord("q"):
                         logger.event("VIDEO_STREAM_STOP", frames_streamed=frame_count)
