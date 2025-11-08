@@ -29,9 +29,8 @@ stream_topic = "camera/stream"
 aruco_topic = "drone/aruco_detection"
 
 # --- ArUco Configuration ---
-aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
-aruco_params = cv2.aruco.DetectorParameters()
-aruco_detector = cv2.aruco.ArucoDetector(aruco_dict, aruco_params)
+aruco_dict = cv2.aruco.Dictionary_get(cv2.aruco.DICT_4X4_50)
+aruco_params = cv2.aruco.DetectorParameters_create()
 
 # --- Global State ---
 centering_mode: bool = False  # Track if drone should center on ArUco marker
@@ -302,7 +301,7 @@ def start_video_stream(client) -> None:
                     img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
                     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-                    corners, ids, rejected = aruco_detector.detectMarkers(gray)
+                    corners, ids, rejected = cv2.aruco.detectMarkers(gray, aruco_dict, parameters=aruco_params)
                     
                     detection_data: dict = {
                         "detected": False,
