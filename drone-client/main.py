@@ -312,12 +312,17 @@ def start_video_stream(client) -> None:
         frame_width: int = 640
         frame_height: int = 480
         
+        skip_frames: int = 2 
+        aruco_skip_frames: int = 1  
+        
         while True:
             with output3.condition:
                 output3.condition.wait()
                 frame = output3.frame
 
                 if frame:
+                    frame_count += 1
+                    
                     img_array: np.ndarray = np.frombuffer(frame, dtype=np.uint8)
                     img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
                     
@@ -355,8 +360,9 @@ def start_video_stream(client) -> None:
                             }
                             detection_data["markers"].append(marker_info)
                             
-                            logger.info(f"ArUco marker detected - ID: {marker_id[0]}, Center: ({center_x:.1f}, {center_y:.1f})",
-                                       marker_id=int(marker_id[0]), center_x=center_x, center_y=center_y)
+                            if frame_count % aruco_skip_frames == 0:
+                                logger.info(f"ArUco marker detected - ID: {marker_id[0]}, Center: ({center_x:.1f}, {center_y:.1f})",
+                                           marker_id=int(marker_id[0]), center_x=center_x, center_y=center_y)
                             
                             if centering_mode and i == 0:  # Only center on first marker
                                 move_to_marker_center(master, center_x, center_y, frame_width, frame_height)
@@ -366,16 +372,15 @@ def start_video_stream(client) -> None:
                     detection_json: str = json.dumps(detection_data)
                     client.publish(aruco_topic, detection_json, qos=0)
                     
-                    encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 85]
-                    ret, jpeg = cv2.imencode(".jpg", img, encode_param)
-                    jpg_as_text: str = base64.b64encode(jpeg).decode("utf-8")
-                    client.publish(stream_topic, jpg_as_text, qos=0)
+                    if frame_count % skip_frames == 0:
+                        encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 60]
+                        ret, jpeg = cv2.imencode(".jpg", img, encode_param)
+                        jpg_as_text: str = base64.b64encode(jpeg).decode("utf-8")
+                        client.publish(stream_topic, jpg_as_text, qos=0)
 
-                    frame_count += 1
                     if frame_count % 100 == 0:
                         logger.metric("frames_streamed", frame_count, "frames")
 
-                    time.sleep(0.033)
 
                     if cv2.waitKey(1) & 0xFF == ord("q"):
                         logger.event("VIDEO_STREAM_STOP", frames_streamed=frame_count)

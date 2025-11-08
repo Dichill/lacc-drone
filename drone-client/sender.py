@@ -23,6 +23,7 @@ command_queue: queue.Queue = queue.Queue()
 running: bool = True
 frame_counter: int = 0
 first_frame_received: bool = False
+last_display_time: float = 0.0  
 
 
 def on_connect(client: mqtt.Client, userdata: object, flags: Dict, rc: int) -> None:
@@ -129,12 +130,15 @@ def start_video_window() -> None:
 
 
 def update_video_display() -> None:
-    global latest_frame
+    global latest_frame, last_display_time
     
     if latest_frame is not None and video_window_active:
         try:
-            cv2.imshow("Drone Camera Feed", latest_frame)
-            cv2.waitKey(1)
+            current_time: float = time.time()
+            if current_time - last_display_time >= 0.016:  # ~60 FPS
+                cv2.imshow("Drone Camera Feed", latest_frame)
+                cv2.waitKey(1)
+                last_display_time = current_time
         except Exception:
             pass 
 
@@ -191,7 +195,7 @@ def interactive_mode(client: mqtt.Client) -> None:
         try:
             command_input: str = command_queue.get_nowait()
         except queue.Empty:
-            time.sleep(0.001)  # 1ms delay to prevent busy waiting
+            time.sleep(0.0001)  # 0.1ms delay for better responsiveness
             continue
 
         try:
@@ -320,6 +324,9 @@ def main() -> None:
     client.on_connect = on_connect
     client.on_publish = on_publish
     client.on_message = on_message
+    
+    client.max_queued_messages_set(1) 
+    client.max_inflight_messages_set(1) 
 
     try:
         print(f"Connecting to MQTT broker at {BROKER_ADDRESS}:{BROKER_PORT}...")
