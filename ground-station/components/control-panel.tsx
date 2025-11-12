@@ -54,28 +54,6 @@ export function ControlPanel({
     }, [telemetry]);
 
     useEffect(() => {
-        console.log("Auto-land button check:", {
-            isConnected,
-            isArmed,
-            markerLocked,
-            arUcoDetected,
-            lockedMarkerId,
-            currentMarkerId: arUcoDetection?.marker_id,
-            isCorrectMarkerDetected,
-            activeLandingMode,
-        });
-    }, [
-        isConnected,
-        isArmed,
-        markerLocked,
-        arUcoDetected,
-        lockedMarkerId,
-        arUcoDetection?.marker_id,
-        isCorrectMarkerDetected,
-        activeLandingMode,
-    ]);
-
-    useEffect(() => {
         if (lastResponse) {
             if (!lastResponse.success) {
                 console.error(
