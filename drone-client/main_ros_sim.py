@@ -74,21 +74,25 @@ np_dist_coeff = np.array(dist_coeff)
 
 #####
 time_last = 0
-time_to_wait = 0.1  # 100 ms
+time_to_wait = 0.033
 
 # MQTT Global State
 mqtt_client = None
 centering_mode = False  # Track if drone should center on ArUco marker
-landing_mode = False  # Track if drone is in landing mode
+landing_mode = False
 
-# Image processing queue to avoid blocking ROS callback
-image_queue = queue.Queue(maxsize=2) 
+image_queue = queue.Queue(maxsize=1)
 processing_lock = Lock()
 
 smoothed_x_ang = 0.0
 smoothed_y_ang = 0.0
 last_command_time = 0.0
-command_rate_limit = 0.2 
+command_rate_limit = 0.2
+
+last_stream_time = 0.0
+stream_rate_limit = 0.033
+last_aruco_time = 0.0
+aruco_rate_limit = 0.1 
 
 
 ################FUNCTIONS###############
@@ -524,6 +528,12 @@ def msg_receiver(message):
     
     if time.time() - time_last > time_to_wait:
         try:
+            while not image_queue.empty():
+                try:
+                    image_queue.get_nowait()
+                except queue.Empty:
+                    break
+            
             image_queue.put_nowait(message)
             time_last = time.time()
         except queue.Full:
@@ -533,6 +543,7 @@ def msg_receiver(message):
 def process_images():
     global notfound_count, found_count, id_to_find
     global landing_mode, centering_mode, mqtt_client, last_command_time
+    global last_stream_time, stream_rate_limit, last_aruco_time, aruco_rate_limit
     
     print("Image processing thread started")
     
@@ -540,13 +551,23 @@ def process_images():
         try:
             message = image_queue.get(timeout=1.0)
             
-            np_data = rnp.numpify(message) 
-            gray_img = cv2.cvtColor(np_data, cv2.COLOR_BGR2GRAY)
-
-            ids = ""
-            (corners, ids, rejected) = aruco.detectMarkers(
-                image=gray_img, dictionary=aruco_dict, parameters=parameters
-            )
+            np_data = rnp.numpify(message)
+            current_time = time.time()
+            
+            should_process_aruco = (current_time - last_aruco_time) >= aruco_rate_limit
+            should_stream = (current_time - last_stream_time) >= stream_rate_limit
+            
+            detection_data = None
+            
+            if should_process_aruco or landing_mode or centering_mode:
+                gray_img = cv2.cvtColor(np_data, cv2.COLOR_BGR2GRAY)
+                (corners, ids, rejected) = aruco.detectMarkers(
+                    image=gray_img, dictionary=aruco_dict, parameters=parameters
+                )
+                last_aruco_time = current_time
+            else:
+                ids = None
+                corners = None
 
             try:
                 if ids is not None:
@@ -682,14 +703,17 @@ def process_images():
 
             if mqtt_client:
                 try:
-                    detection_json = json.dumps(detection_data)
-                    mqtt_client.publish(aruco_topic, detection_json, qos=0)
-
-                    encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 60]
-                    ret_encode, jpeg = cv2.imencode(".jpg", np_data, encode_param)
-                    if ret_encode:
-                        jpg_as_text = base64.b64encode(jpeg).decode("utf-8")
-                        mqtt_client.publish(stream_topic, jpg_as_text, qos=0)
+                    if detection_data is not None:
+                        detection_json = json.dumps(detection_data)
+                        mqtt_client.publish(aruco_topic, detection_json, qos=0)
+                    
+                    if should_stream:
+                        encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 50]
+                        ret_encode, jpeg = cv2.imencode(".jpg", np_data, encode_param)
+                        if ret_encode:
+                            jpg_as_text = base64.b64encode(jpeg).decode("utf-8")
+                            mqtt_client.publish(stream_topic, jpg_as_text, qos=0)
+                        last_stream_time = current_time
                 except Exception as e:
                     print("MQTT publish error: {}".format(e))
 
