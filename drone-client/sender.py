@@ -10,16 +10,21 @@ from threading import Thread
 import queue
 
 
-BROKER_ADDRESS: str = "192.168.0.163"
+# --- Configuration Mode ---
+# Set to True for simulation, False for real drone
+SIMULATION_MODE: bool = True
+
+# MQTT Broker Configuration
+# For simulation: use localhost
+# For real drone: use drone's IP address (e.g., "192.168.0.163")
+BROKER_ADDRESS: str = "localhost" if SIMULATION_MODE else "192.168.0.163"
 BROKER_PORT: int = 1883
 COMMAND_TOPIC: str = "drone/commands"
 STREAM_TOPIC: str = "camera/stream"
 ARUCO_TOPIC: str = "drone/aruco_detection"
-TELEMETRY_TOPIC: str = "drone/telemetry"
 
 latest_frame: Optional[np.ndarray] = None
 aruco_detection_data: Optional[Dict] = None
-telemetry_data: Optional[Dict] = None
 video_window_active: bool = False
 command_queue: queue.Queue = queue.Queue()
 running: bool = True
@@ -33,10 +38,8 @@ def on_connect(client: mqtt.Client, userdata: object, flags: Dict, rc: int) -> N
         print(f"✓ Connected to MQTT broker at {BROKER_ADDRESS}:{BROKER_PORT}")
         client.subscribe(STREAM_TOPIC)
         client.subscribe(ARUCO_TOPIC)
-        client.subscribe(TELEMETRY_TOPIC)
         print(f"✓ Subscribed to video stream: {STREAM_TOPIC}")
         print(f"✓ Subscribed to ArUco detection: {ARUCO_TOPIC}")
-        print(f"✓ Subscribed to telemetry: {TELEMETRY_TOPIC}")
     else:
         print(f"✗ Connection failed with result code {rc}")
 
@@ -46,8 +49,8 @@ def on_publish(client: mqtt.Client, userdata: object, mid: int) -> None:
 
 
 def on_message(client: mqtt.Client, userdata: object, msg) -> None:
-    """Handle incoming MQTT messages for video stream, ArUco detection, and telemetry."""
-    global latest_frame, aruco_detection_data, telemetry_data, frame_counter, first_frame_received
+    """Handle incoming MQTT messages for video stream and ArUco detection."""
+    global latest_frame, aruco_detection_data, frame_counter, first_frame_received
     
     try:
         if msg.topic == STREAM_TOPIC:
@@ -65,10 +68,6 @@ def on_message(client: mqtt.Client, userdata: object, msg) -> None:
         elif msg.topic == ARUCO_TOPIC:
             detection_json: str = msg.payload.decode("utf-8")
             aruco_detection_data = json.loads(detection_json)
-            
-        elif msg.topic == TELEMETRY_TOPIC:
-            telemetry_json: str = msg.payload.decode("utf-8")
-            telemetry_data = json.loads(telemetry_json)
             
     except Exception as e:
         print(f"✗ Error processing message from {msg.topic}: {e}")
@@ -122,36 +121,6 @@ def send_enable_centering(client: mqtt.Client) -> bool:
 
 def send_disable_centering(client: mqtt.Client) -> bool:
     return send_command(client, "disable_centering")
-
-
-def send_precision_land(client: mqtt.Client) -> bool:
-    """
-    Enable precision landing mode - drone will use ArUco marker for precise landing.
-    
-    Args:
-        client: MQTT client instance
-        
-    Returns:
-        bool: True if command was published successfully
-    """
-    return send_command(client, "precision_land")
-
-
-def send_move_velocity(client: mqtt.Client, vx: float, vy: float, vz: float, duration: float = 1.0) -> bool:
-    """
-    Move drone with specified velocity in NED frame.
-    
-    Args:
-        client: MQTT client instance
-        vx: Velocity in x direction (North) in m/s
-        vy: Velocity in y direction (East) in m/s
-        vz: Velocity in z direction (Down) in m/s
-        duration: Duration to maintain velocity in seconds
-        
-    Returns:
-        bool: True if command was published successfully
-    """
-    return send_command(client, "move_velocity", vx=vx, vy=vy, vz=vz, duration=duration)
 
 
 def start_video_window() -> None:
@@ -209,20 +178,20 @@ def interactive_mode(client: mqtt.Client) -> None:
     print("\n" + "=" * 60)
     print("LACC DRONE | CLI")
     print("=" * 60)
+    print("\nMode: {}".format("SIMULATION" if SIMULATION_MODE else "REAL DRONE"))
+    print("Broker: {}:{}".format(BROKER_ADDRESS, BROKER_PORT))
+    print("=" * 60)
     print("\nAvailable commands:")
-    print("  1. takeoff [altitude]     - Command the drone to take off (default: 5.0m)")
-    print("  2. land                   - Command the drone to land")
-    print("  3. move <dest>            - Command the drone to move to a destination")
-    print("  4. auto_land              - Auto-land on detected ArUco marker")
-    print("  5. enable_centering       - Enable marker centering mode")
-    print("  6. disable_centering      - Disable marker centering mode")
-    print("  7. precision_land         - Enable precision landing with ArUco")
-    print("  8. move_velocity          - Move with velocity (vx, vy, vz, duration)")
-    print("  9. video                  - Open/close video feed window")
-    print("  10. telemetry             - Show current telemetry data")
-    print("  11. custom                - Send a custom JSON command")
-    print("  status                    - Show video feed and connection status")
-    print("  quit                      - Exit the program")
+    print("  1. takeoff [altitude]  - Command the drone to take off (default: 5.0m)")
+    print("  2. land                - Command the drone to land")
+    print("  3. move <dest>         - Command the drone to move to a destination")
+    print("  4. auto_land           - Auto-land on detected ArUco marker")
+    print("  5. enable_centering    - Enable marker centering mode")
+    print("  6. disable_centering   - Disable marker centering mode")
+    print("  7. video               - Open/close video feed window")
+    print("  8. custom              - Send a custom JSON command")
+    print("  status                 - Show video feed and connection status")
+    print("  9. quit                - Exit the program")
     print("\n" + "=" * 60 + "\n")
     
     start_video_window()
@@ -299,56 +268,13 @@ def interactive_mode(client: mqtt.Client) -> None:
                 print("→ Disabling centering mode...")
                 send_disable_centering(client)
 
-            elif command_input == "precision_land" or command_input == "7":
-                if aruco_detection_data and aruco_detection_data.get("detected", False):
-                    print("→ Enabling precision landing mode...")
-                    send_precision_land(client)
-                else:
-                    print("✗ No ArUco marker detected. Cannot enable precision landing.")
-
-            elif command_input.startswith("move_velocity") or command_input == "8":
-                if command_input == "8":
-                    print("✗ Usage: move_velocity <vx> <vy> <vz> [duration]")
-                    print("  Example: move_velocity 0.5 0 0 2.0")
-                    continue
-                else:
-                    parts = command_input.split()
-                    if len(parts) < 4:
-                        print("✗ Usage: move_velocity <vx> <vy> <vz> [duration]")
-                        continue
-                    try:
-                        vx: float = float(parts[1])
-                        vy: float = float(parts[2])
-                        vz: float = float(parts[3])
-                        duration: float = float(parts[4]) if len(parts) > 4 else 1.0
-                        
-                        print(f"→ Moving with velocity: vx={vx}, vy={vy}, vz={vz} for {duration}s")
-                        send_move_velocity(client, vx, vy, vz, duration)
-                    except ValueError:
-                        print("✗ Invalid values. All parameters must be numbers.")
-                        continue
-
-            elif command_input == "video" or command_input == "9":
+            elif command_input == "video" or command_input == "7":
                 if not video_window_active:
                     print("→ Opening video feed window...")
                     start_video_window()
                 else:
                     print("→ Closing video feed window...")
                     close_video_window()
-            
-            elif command_input == "telemetry" or command_input == "10":
-                if telemetry_data:
-                    print(f"\n📡 Telemetry Data:")
-                    print(f"  Mode: {telemetry_data.get('mode', 'N/A')}")
-                    print(f"  Armed: {telemetry_data.get('armed', 'N/A')}")
-                    print(f"  Altitude: {telemetry_data.get('altitude', 0):.2f}m")
-                    print(f"  Latitude: {telemetry_data.get('latitude', 0):.7f}")
-                    print(f"  Longitude: {telemetry_data.get('longitude', 0):.7f}")
-                    print(f"  Heading: {telemetry_data.get('heading', 0)}°")
-                    print(f"  Ground Speed: {telemetry_data.get('groundspeed', 0):.2f} m/s")
-                    print()
-                else:
-                    print("✗ No telemetry data available yet")
             
             elif command_input == "status":
                 print(f"\n📊 Status:")
@@ -361,8 +287,8 @@ def interactive_mode(client: mqtt.Client) -> None:
                 print(f"  ArUco markers detected: {aruco_detection_data.get('detected', False) if aruco_detection_data else False}")
                 print()
 
-            elif command_input.startswith("custom") or command_input == "11":
-                if command_input == "11" or command_input == "custom":
+            elif command_input.startswith("custom") or command_input == "8":
+                if command_input == "8" or command_input == "custom":
                     print('✗ Usage: custom {"action": "test", "value": "123"}')
                     continue
                 
@@ -390,7 +316,7 @@ def interactive_mode(client: mqtt.Client) -> None:
 
             else:
                 print(f"✗ Unknown command: {command_input}")
-                print("Type 'quit' to exit or enter a valid command (1-11)")
+                print("Type 'quit' to exit or enter a valid command (1-9)")
 
         except KeyboardInterrupt:
             print("\n\n✓ Interrupted by user. Exiting...")
@@ -445,26 +371,9 @@ def main() -> None:
                 send_enable_centering(client)
             elif action == "disable_centering":
                 send_disable_centering(client)
-            elif action == "precision_land":
-                send_precision_land(client)
-            elif action == "move_velocity":
-                if len(sys.argv) < 5:
-                    print("✗ Usage: python sender.py move_velocity <vx> <vy> <vz> [duration]")
-                    return
-                try:
-                    vx: float = float(sys.argv[2])
-                    vy: float = float(sys.argv[3])
-                    vz: float = float(sys.argv[4])
-                    duration: float = float(sys.argv[5]) if len(sys.argv) > 5 else 1.0
-                    send_move_velocity(client, vx, vy, vz, duration)
-                except ValueError:
-                    print("✗ Invalid values. All parameters must be numbers.")
-                    return
             else:
                 print(f"✗ Unknown action: {action}")
-                print("Valid actions: takeoff [altitude], land, move <destination>, auto_land,")
-                print("                enable_centering, disable_centering, precision_land,")
-                print("                move_velocity <vx> <vy> <vz> [duration]")
+                print("Valid actions: takeoff [altitude], land, move <destination>, auto_land, enable_centering, disable_centering")
                 return
 
             time.sleep(1)
