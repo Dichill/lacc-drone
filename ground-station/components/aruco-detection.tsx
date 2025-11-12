@@ -4,57 +4,119 @@ import React, { useState, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Scan, ScanSearch, AlertCircle, Lock, Unlock } from "lucide-react";
+import {
+    Scan,
+    ScanSearch,
+    AlertCircle,
+    Lock,
+    Unlock,
+    Clock,
+} from "lucide-react";
 import type { ArUcoDetection } from "@/hooks/use-mqtt";
+
+interface CachedMarker {
+    id: number;
+    lastSeen: number;
+    isLive: boolean;
+}
 
 interface ArUcoDetectionProps {
     detection: ArUcoDetection | null;
     isConnected: boolean;
     onLockChange?: (locked: boolean, markerId?: number) => void;
+    autoLockEnabled?: boolean;
 }
+
+const MARKER_CACHE_TIMEOUT = 5000;
 
 export function ArUcoDetectionDisplay({
     detection,
     isConnected,
     onLockChange,
+    autoLockEnabled = false,
 }: ArUcoDetectionProps) {
     const isDetected = detection?.detected ?? false;
     const [isLocked, setIsLocked] = useState(false);
     const [lockedMarkerId, setLockedMarkerId] = useState<number | null>(null);
-    const [showLockPrompt, setShowLockPrompt] = useState(false);
+    const [cachedMarkers, setCachedMarkers] = useState<
+        Map<number, CachedMarker>
+    >(new Map());
 
-    useEffect(() => {
-        if (
-            isDetected &&
-            !isLocked &&
-            !showLockPrompt &&
-            detection?.marker_id !== undefined
-        ) {
-            setShowLockPrompt(true);
-        }
-
-        if (!isDetected && isLocked) {
-            setShowLockPrompt(false);
-        }
-    }, [isDetected, isLocked, showLockPrompt, detection?.marker_id]);
-
-    const handleLockIn = () => {
-        if (detection?.marker_id !== undefined) {
+    const handleLockIn = React.useCallback(
+        (markerId: number) => {
             setIsLocked(true);
-            setLockedMarkerId(detection.marker_id);
-            setShowLockPrompt(false);
-            onLockChange?.(true, detection.marker_id);
-        }
-    };
+            setLockedMarkerId(markerId);
+            onLockChange?.(true, markerId);
+        },
+        [onLockChange]
+    );
 
-    const handleUnlock = () => {
+    const handleUnlock = React.useCallback(() => {
         setIsLocked(false);
         setLockedMarkerId(null);
-        setShowLockPrompt(false);
         onLockChange?.(false);
-    };
+    }, [onLockChange]);
+
+    useEffect(() => {
+        if (isDetected && detection?.marker_id !== undefined) {
+            const markerId = detection.marker_id;
+            setCachedMarkers((prev) => {
+                const updated = new Map(prev);
+                updated.set(markerId, {
+                    id: markerId,
+                    lastSeen: Date.now(),
+                    isLive: true,
+                });
+                return updated;
+            });
+
+            if (autoLockEnabled && !isLocked) {
+                handleLockIn(markerId);
+            }
+        }
+    }, [
+        isDetected,
+        detection?.marker_id,
+        autoLockEnabled,
+        isLocked,
+        handleLockIn,
+    ]);
+
+    useEffect(() => {
+        const interval = setInterval(() => {
+            const now = Date.now();
+            setCachedMarkers((prev) => {
+                const updated = new Map(prev);
+                let hasChanges = false;
+
+                prev.forEach((marker, id) => {
+                    const timeSinceLastSeen = now - marker.lastSeen;
+
+                    if (timeSinceLastSeen > MARKER_CACHE_TIMEOUT) {
+                        updated.delete(id);
+                        hasChanges = true;
+                    } else if (marker.isLive && timeSinceLastSeen > 1000) {
+                        updated.set(id, { ...marker, isLive: false });
+                        hasChanges = true;
+                    }
+                });
+
+                return hasChanges ? updated : prev;
+            });
+        }, 250);
+
+        return () => clearInterval(interval);
+    }, []);
 
     const isCorrectMarker = isLocked && detection?.marker_id === lockedMarkerId;
+    const cachedMarkerArray = Array.from(cachedMarkers.values()).sort(
+        (a, b) => b.lastSeen - a.lastSeen
+    );
+
+    const getTimeSinceLastSeen = (lastSeen: number) => {
+        const seconds = Math.floor((Date.now() - lastSeen) / 1000);
+        return seconds === 0 ? "just now" : `${seconds}s ago`;
+    };
 
     return (
         <Card className="p-6 bg-slate-950 border-slate-800">
@@ -136,45 +198,76 @@ export function ArUcoDetectionDisplay({
                             </div>
                         </div>
                     </div>
-                ) : isDetected ? (
+                ) : cachedMarkerArray.length > 0 || isDetected ? (
                     <div className="space-y-3">
-                        {showLockPrompt && !isLocked && (
-                            <div className="p-4 bg-amber-950 border border-amber-800 rounded-lg">
-                                <div className="space-y-3">
-                                    <div className="flex items-start gap-3 text-amber-200">
-                                        <Lock className="h-6 w-6 mt-0.5" />
+                        <div className="p-4 bg-slate-900 rounded-lg border border-slate-800">
+                            <h4 className="text-sm font-semibold text-slate-300 mb-3">
+                                Detected Markers
+                            </h4>
+                            <div className="space-y-2">
+                                {cachedMarkerArray.map((marker) => (
+                                    <div
+                                        key={marker.id}
+                                        className={`p-3 rounded-lg border flex items-center justify-between ${
+                                            isLocked &&
+                                            lockedMarkerId === marker.id
+                                                ? "bg-emerald-950 border-emerald-800"
+                                                : "bg-slate-800 border-slate-700"
+                                        }`}
+                                    >
                                         <div className="flex-1">
-                                            <p className="text-sm font-semibold">
-                                                Lock onto this marker?
-                                            </p>
-                                            <p className="text-xs mt-1 opacity-80">
-                                                Locking will enable autonomous
-                                                landing on Marker ID{" "}
-                                                {detection?.marker_id}
-                                            </p>
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-lg font-bold text-slate-200 font-mono">
+                                                    ID {marker.id}
+                                                </span>
+                                                {marker.isLive ? (
+                                                    <Badge
+                                                        variant="default"
+                                                        className="text-xs bg-emerald-600"
+                                                    >
+                                                        <Scan className="mr-1 h-3 w-3" />
+                                                        Live
+                                                    </Badge>
+                                                ) : (
+                                                    <Badge
+                                                        variant="secondary"
+                                                        className="text-xs"
+                                                    >
+                                                        <Clock className="mr-1 h-3 w-3" />
+                                                        {getTimeSinceLastSeen(
+                                                            marker.lastSeen
+                                                        )}
+                                                    </Badge>
+                                                )}
+                                            </div>
                                         </div>
+                                        {isLocked &&
+                                        lockedMarkerId === marker.id ? (
+                                            <Button
+                                                onClick={handleUnlock}
+                                                variant="outline"
+                                                size="sm"
+                                                className="border-emerald-700 text-emerald-200 hover:bg-emerald-900"
+                                            >
+                                                <Unlock className="mr-2 h-3 w-3" />
+                                                Unlock
+                                            </Button>
+                                        ) : !isLocked ? (
+                                            <Button
+                                                onClick={() =>
+                                                    handleLockIn(marker.id)
+                                                }
+                                                size="sm"
+                                                className="bg-purple-600 hover:bg-purple-700"
+                                            >
+                                                <Lock className="mr-2 h-3 w-3" />
+                                                Lock
+                                            </Button>
+                                        ) : null}
                                     </div>
-                                    <div className="flex gap-2">
-                                        <Button
-                                            onClick={handleLockIn}
-                                            className="flex-1 bg-emerald-600 hover:bg-emerald-700"
-                                        >
-                                            <Lock className="mr-2 h-4 w-4" />
-                                            Lock Target
-                                        </Button>
-                                        <Button
-                                            onClick={() =>
-                                                setShowLockPrompt(false)
-                                            }
-                                            variant="outline"
-                                            className="flex-1 border-amber-800 text-amber-200 hover:bg-amber-900"
-                                        >
-                                            Dismiss
-                                        </Button>
-                                    </div>
-                                </div>
+                                ))}
                             </div>
-                        )}
+                        </div>
 
                         <div
                             className={`p-4 rounded-lg ${

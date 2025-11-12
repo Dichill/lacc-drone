@@ -90,9 +90,11 @@ last_command_time = 0.0
 command_rate_limit = 0.2
 
 last_stream_time = 0.0
-stream_rate_limit = 0.033
+stream_rate_limit = 0.05
 last_aruco_time = 0.0
-aruco_rate_limit = 0.05
+aruco_rate_limit = 0.1
+last_aruco_publish_time = 0.0
+aruco_publish_rate_limit = 0.2
 last_detection_data = {"detected": False, "markers": [], "timestamp": time.time()} 
 
 
@@ -545,7 +547,7 @@ def process_images():
     global notfound_count, found_count, id_to_find
     global landing_mode, centering_mode, mqtt_client, last_command_time
     global last_stream_time, stream_rate_limit, last_aruco_time, aruco_rate_limit
-    global last_detection_data
+    global last_aruco_publish_time, aruco_publish_rate_limit, last_detection_data
     
     print("Image processing thread started")
     
@@ -558,9 +560,10 @@ def process_images():
             
             should_process_aruco = (current_time - last_aruco_time) >= aruco_rate_limit
             should_stream = (current_time - last_stream_time) >= stream_rate_limit
+            should_publish_aruco = (current_time - last_aruco_publish_time) >= aruco_publish_rate_limit
             
             was_detected = last_detection_data.get("detected", False)
-            force_process = landing_mode or centering_mode or was_detected
+            force_process = landing_mode or centering_mode
             
             if should_process_aruco or force_process:
                 gray_img = cv2.cvtColor(np_data, cv2.COLOR_BGR2GRAY)
@@ -711,11 +714,13 @@ def process_images():
             
             if mqtt_client:
                 try:
-                    detection_json = json.dumps(last_detection_data)
-                    mqtt_client.publish(aruco_topic, detection_json, qos=0)
+                    if should_publish_aruco or (detection_data is not None):
+                        detection_json = json.dumps(last_detection_data)
+                        mqtt_client.publish(aruco_topic, detection_json, qos=0)
+                        last_aruco_publish_time = current_time
                     
                     if should_stream:
-                        encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 50]
+                        encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 40]
                         ret_encode, jpeg = cv2.imencode(".jpg", np_data, encode_param)
                         if ret_encode:
                             jpg_as_text = base64.b64encode(jpeg).decode("utf-8")

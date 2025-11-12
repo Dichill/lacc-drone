@@ -17,6 +17,7 @@ export default function Home() {
     const [lastUpdate, setLastUpdate] = useState<Date | null>(new Date());
     const [markerLocked, setMarkerLocked] = useState(false);
     const [lockedMarkerId, setLockedMarkerId] = useState<number | undefined>();
+    const [autoLockEnabled, setAutoLockEnabled] = useState(false);
 
     const mqtt = useMQTT();
 
@@ -29,6 +30,10 @@ export default function Home() {
     const handleMarkerLockChange = (locked: boolean, markerId?: number) => {
         setMarkerLocked(locked);
         setLockedMarkerId(markerId);
+    };
+
+    const handleAutoLockChange = (enabled: boolean) => {
+        setAutoLockEnabled(enabled);
     };
 
     const telemetry = {
@@ -121,6 +126,7 @@ export default function Home() {
                             detection={mqtt.arUcoDetection}
                             isConnected={mqtt.isConnected}
                             onLockChange={handleMarkerLockChange}
+                            autoLockEnabled={autoLockEnabled}
                         />
                     </div>
 
@@ -242,6 +248,8 @@ export default function Home() {
                             arUcoDetection={mqtt.arUcoDetection}
                             markerLocked={markerLocked}
                             lockedMarkerId={lockedMarkerId}
+                            autoLockEnabled={autoLockEnabled}
+                            onAutoLockChange={handleAutoLockChange}
                         />
                     </div>
 

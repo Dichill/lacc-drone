@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Plane, Camera, Target, MapPin, Crosshair } from "lucide-react";
+import { Plane, Camera, Target, MapPin, Crosshair, Lock } from "lucide-react";
 import type { UseMQTTReturn, ArUcoDetection } from "@/hooks/use-mqtt";
 
 interface ControlPanelProps {
@@ -12,6 +12,8 @@ interface ControlPanelProps {
     arUcoDetection: ArUcoDetection | null;
     markerLocked?: boolean;
     lockedMarkerId?: number;
+    autoLockEnabled?: boolean;
+    onAutoLockChange?: (enabled: boolean) => void;
 }
 
 export function ControlPanel({
@@ -19,6 +21,8 @@ export function ControlPanel({
     arUcoDetection,
     markerLocked = false,
     lockedMarkerId,
+    autoLockEnabled: externalAutoLock,
+    onAutoLockChange,
 }: ControlPanelProps) {
     const [isArmed, setIsArmed] = useState(false);
     const [isTakingOff, setIsTakingOff] = useState(false);
@@ -28,6 +32,12 @@ export function ControlPanel({
     const [centeringEnabled, setCenteringEnabled] = useState(false);
     const [altitude, setAltitude] = useState<string>("5.0");
     const [destination, setDestination] = useState<string>("");
+
+    const autoLockEnabled = externalAutoLock ?? false;
+
+    const handleAutoLockToggle = () => {
+        onAutoLockChange?.(!autoLockEnabled);
+    };
 
     const isConnected = mqtt?.isConnected ?? false;
     const arUcoDetected = arUcoDetection?.detected ?? false;
@@ -527,6 +537,34 @@ export function ControlPanel({
                             <span className="text-xs opacity-80">
                                 {centeringEnabled ? "Stop" : "Start"} marker
                                 tracking
+                            </span>
+                        </div>
+                    </Button>
+                </div>
+
+                {/* Auto-Lock Toggle */}
+                <div className="p-4 bg-slate-900 rounded-lg border border-slate-800">
+                    <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3">
+                        Auto-Lock Markers
+                    </h3>
+                    <Button
+                        onClick={handleAutoLockToggle}
+                        disabled={!isConnected}
+                        className={`w-full h-12 disabled:opacity-50 ${
+                            autoLockEnabled
+                                ? "bg-purple-600 hover:bg-purple-700"
+                                : "bg-slate-600 hover:bg-slate-700"
+                        }`}
+                    >
+                        <Lock className="mr-2 h-5 w-5" />
+                        <div className="flex flex-col items-start">
+                            <span className="font-semibold">
+                                Auto-Lock: {autoLockEnabled ? "ON" : "OFF"}
+                            </span>
+                            <span className="text-xs opacity-80">
+                                {autoLockEnabled
+                                    ? "First detected marker locks automatically"
+                                    : "Manual lock required"}
                             </span>
                         </div>
                     </Button>
