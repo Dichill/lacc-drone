@@ -433,15 +433,6 @@ export function ControlPanel({
                         </div>
                     )}
 
-                    {isCorrectMarkerDetected && (
-                        <div className="mb-3 p-3 bg-emerald-950 border border-emerald-800 rounded-lg">
-                            <p className="text-xs text-emerald-200 font-medium">
-                                ✓ Locked marker {lockedMarkerId} detected -
-                                Ready for auto-land!
-                            </p>
-                        </div>
-                    )}
-
                     <div className="space-y-3">
                         <Button
                             onClick={handleManualLandingToggle}
