@@ -191,6 +191,7 @@ def interactive_mode(client: mqtt.Client) -> None:
     print("  7. video               - Open/close video feed window")
     print("  8. custom              - Send a custom JSON command")
     print("  status                 - Show video feed and connection status")
+    print("  drone_status           - Show drone flight status (armed, mode, etc.)")
     print("  9. quit                - Exit the program")
     print("\n" + "=" * 60 + "\n")
     
@@ -277,7 +278,7 @@ def interactive_mode(client: mqtt.Client) -> None:
                     close_video_window()
             
             elif command_input == "status":
-                print(f"\n📊 Status:")
+                print(f"\n📊 Video Feed Status:")
                 print(f"  Video window active: {video_window_active}")
                 print(f"  Frames received: {frame_counter}")
                 print(f"  Latest frame: {'Available' if latest_frame is not None else 'None'}")
@@ -286,6 +287,10 @@ def interactive_mode(client: mqtt.Client) -> None:
                     print(f"  Frame size: {width}x{height}")
                 print(f"  ArUco markers detected: {aruco_detection_data.get('detected', False) if aruco_detection_data else False}")
                 print()
+
+            elif command_input == "drone_status":
+                print("→ Requesting drone status...")
+                send_command(client, "status")
 
             elif command_input.startswith("custom") or command_input == "8":
                 if command_input == "8" or command_input == "custom":

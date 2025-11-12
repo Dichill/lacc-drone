@@ -1,10 +1,6 @@
 #!/usr/bin/env python
 
 ########IMPORTS#########
-
-from __future__ import print_function
-from __future__ import division
-
 import rospy
 from sensor_msgs.msg import Image
 import cv2
@@ -94,7 +90,38 @@ command_rate_limit = 0.2
 
 
 ################FUNCTIONS###############
+def vehicle_state_monitor():
+    global landing_mode, centering_mode
+    print("Vehicle state monitor started")
+    
+    was_armed = False
+    
+    while True:
+        try:
+            is_armed = vehicle.armed
+            
+            if was_armed and not is_armed:
+                if landing_mode or centering_mode:
+                    print("Vehicle disarmed - auto-disabling landing/centering modes")
+                    landing_mode = False
+                    centering_mode = False
+            
+            was_armed = is_armed
+            time.sleep(0.5)  
+            
+        except Exception as e:
+            print("State monitor error: {}".format(e))
+            time.sleep(1)
+
+
 def arm_and_takeoff(targetHeight):
+    global landing_mode, centering_mode
+    
+    if landing_mode or centering_mode:
+        print("Resetting landing/centering modes from previous flight")
+        landing_mode = False
+        centering_mode = False
+    
     while vehicle.is_armable != True:
         print("Waiting for vehicle to become armable")
         time.sleep(1)
@@ -207,15 +234,17 @@ def process_command(command):
         elif action == "land":
             print("Action: Executing 'land' command")
             centering_mode = False
-            landing_mode = False
+            landing_mode = False  
             vehicle.mode = VehicleMode("LAND")
+            print("Regular landing initiated (auto-landing disabled)")
             time.sleep(1)
 
         elif action == "auto_land":
             print("Action: Executing 'auto_land' command")
-            centering_mode = False
+            centering_mode = False 
             landing_mode = True
             print("Landing mode enabled - will auto-land on marker")
+            print("Note: This mode will auto-disable when vehicle lands")
 
         elif action == "enable_centering":
             centering_mode = True
@@ -224,6 +253,17 @@ def process_command(command):
         elif action == "disable_centering":
             centering_mode = False
             print("Centering mode disabled")
+
+        elif action == "status":
+            print("\n" + "=" * 50)
+            print("DRONE STATUS")
+            print("=" * 50)
+            print("  Armed: {}".format(vehicle.armed))
+            print("  Mode: {}".format(vehicle.mode.name))
+            print("  Altitude: {:.2f}m".format(vehicle.location.global_relative_frame.alt))
+            print("  Landing Mode: {}".format("ACTIVE" if landing_mode else "INACTIVE"))
+            print("  Centering Mode: {}".format("ACTIVE" if centering_mode else "INACTIVE"))
+            print("=" * 50 + "\n")
 
         elif action == "move":
             print("Moved to {}".format(value))
@@ -463,6 +503,11 @@ if __name__ == "__main__":
         mqtt_client.loop_start()
         print("MQTT connected and ready for commands")
         print()
+        
+        monitor_thread = Thread(target=vehicle_state_monitor)
+        monitor_thread.daemon = True
+        monitor_thread.start()
+        print("Vehicle state monitor started")
         
         processing_thread = Thread(target=process_images)
         processing_thread.daemon = True
