@@ -54,6 +54,28 @@ export function ControlPanel({
     }, [telemetry]);
 
     useEffect(() => {
+        console.log("Auto-land button check:", {
+            isConnected,
+            isArmed,
+            markerLocked,
+            arUcoDetected,
+            lockedMarkerId,
+            currentMarkerId: arUcoDetection?.marker_id,
+            isCorrectMarkerDetected,
+            activeLandingMode,
+        });
+    }, [
+        isConnected,
+        isArmed,
+        markerLocked,
+        arUcoDetected,
+        lockedMarkerId,
+        arUcoDetection?.marker_id,
+        isCorrectMarkerDetected,
+        activeLandingMode,
+    ]);
+
+    useEffect(() => {
         if (lastResponse) {
             if (!lastResponse.success) {
                 console.error(
@@ -414,6 +436,26 @@ export function ControlPanel({
                     <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3">
                         Landing Controls
                     </h3>
+
+                    {arUcoDetected && !isCorrectMarkerDetected && (
+                        <div className="mb-3 p-3 bg-amber-950 border border-amber-800 rounded-lg">
+                            <p className="text-xs text-amber-200 font-medium">
+                                {!markerLocked
+                                    ? "⚠️ ArUco detected but not locked. Go to Marker Detection and click 'Lock Target'"
+                                    : `⚠️ Wrong marker detected. Looking for ID ${lockedMarkerId}, but seeing ID ${arUcoDetection?.marker_id}`}
+                            </p>
+                        </div>
+                    )}
+
+                    {isCorrectMarkerDetected && (
+                        <div className="mb-3 p-3 bg-emerald-950 border border-emerald-800 rounded-lg">
+                            <p className="text-xs text-emerald-200 font-medium">
+                                ✓ Locked marker {lockedMarkerId} detected -
+                                Ready for auto-land!
+                            </p>
+                        </div>
+                    )}
+
                     <div className="space-y-3">
                         <Button
                             onClick={handleManualLandingToggle}
@@ -447,6 +489,7 @@ export function ControlPanel({
                             onClick={handleAutoLandingToggle}
                             disabled={
                                 !isConnected ||
+                                !isArmed ||
                                 (activeLandingMode !== null &&
                                     activeLandingMode !== "auto") ||
                                 (activeLandingMode !== "auto" &&
@@ -455,7 +498,7 @@ export function ControlPanel({
                             className={`w-full h-12 disabled:opacity-50 ${
                                 activeLandingMode === "auto"
                                     ? "bg-orange-600 hover:bg-orange-700 animate-pulse"
-                                    : isCorrectMarkerDetected
+                                    : isCorrectMarkerDetected && isArmed
                                     ? "bg-purple-600 hover:bg-purple-700"
                                     : "bg-purple-600 hover:bg-purple-700"
                             }`}
@@ -470,6 +513,8 @@ export function ControlPanel({
                                 <span className="text-xs opacity-80">
                                     {activeLandingMode === "auto"
                                         ? "Click to cancel"
+                                        : !isArmed
+                                        ? "Arm drone first"
                                         : !markerLocked
                                         ? "Lock marker first"
                                         : isCorrectMarkerDetected

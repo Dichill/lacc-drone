@@ -641,11 +641,13 @@ def process_images():
 
                         found_count = found_count + 1
 
+                        marker_id = int(ids[0][0])
                         detection_data = {
                             "detected": True,
+                            "marker_id": marker_id,
                             "markers": [
                                 {
-                                    "id": int(ids[0][0]),
+                                    "id": marker_id,
                                     "center_x": float(x_avg),
                                     "center_y": float(y_avg),
                                     "position": {
