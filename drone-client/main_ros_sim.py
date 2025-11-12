@@ -43,6 +43,8 @@ broker_port = 1883
 command_topic = "drone/commands"
 stream_topic = "camera/stream"
 aruco_topic = "drone/aruco_detection"
+response_topic = "drone/responses"
+telemetry_topic = "drone/telemetry"
 
 # ROS Publisher
 newimg_pub = rospy.Publisher("/camera/color/image_new", Image, queue_size=10)
@@ -205,9 +207,46 @@ def smooth_angular_position(x_ang, y_ang, alpha=0.3):
     return smoothed_x_ang, smoothed_y_ang
 
 
+def send_response(success, message, action):
+    global mqtt_client
+    if mqtt_client:
+        try:
+            response = {
+                "success": success,
+                "message": message,
+                "action": action,
+                "timestamp": time.time()
+            }
+            mqtt_client.publish(response_topic, json.dumps(response), qos=1)
+        except Exception as e:
+            print("Failed to send response: {}".format(e))
+
+
+def telemetry_publisher():
+    global mqtt_client
+    
+    while True:
+        try:
+            if mqtt_client:
+                telemetry = {
+                    "armed": vehicle.armed,
+                    "mode": vehicle.mode.name,
+                    "altitude": vehicle.location.global_relative_frame.alt,
+                    "battery": vehicle.battery.level if vehicle.battery else None,
+                    "gps_fix": vehicle.gps_0.fix_type if vehicle.gps_0 else None,
+                    "landing_mode": landing_mode,
+                    "centering_mode": centering_mode,
+                    "timestamp": time.time()
+                }
+                mqtt_client.publish(telemetry_topic, json.dumps(telemetry), qos=0)
+        except Exception as e:
+            print("Telemetry error: {}".format(e))
+        
+        time.sleep(1)
+
+
 # MQTT Command Processing
 def process_command(command):
-    """Process incoming MQTT command."""
     global centering_mode, landing_mode
     print("Processing command: {}".format(command))
 
@@ -221,38 +260,155 @@ def process_command(command):
             target_altitude = float(data.get("altitude", takeoff_height))
             print("Target altitude set to {} meters".format(target_altitude))
             
-            # Run takeoff in a separate thread to avoid blocking MQTT
             def takeoff_thread():
-                arm_and_takeoff(target_altitude)
-                print("Takeoff complete")
+                try:
+                    arm_and_takeoff(target_altitude)
+                    print("Takeoff complete")
+                    send_response(True, "Takeoff completed at {} meters".format(target_altitude), action)
+                except Exception as e:
+                    print("Takeoff failed: {}".format(e))
+                    send_response(False, "Takeoff failed: {}".format(str(e)), action)
             
             t = Thread(target=takeoff_thread)
             t.daemon = True
             t.start()
             print("Takeoff initiated (running in background)")
+            send_response(True, "Takeoff command received", action)
+
+        elif action == "arm":
+            print("Action: Executing 'arm' command")
+            try:
+                if not vehicle.is_armable:
+                    send_response(False, "Vehicle not armable", action)
+                    return
+                
+                vehicle.mode = VehicleMode("GUIDED")
+                while vehicle.mode != "GUIDED":
+                    print("Waiting for GUIDED mode...")
+                    time.sleep(0.5)
+                
+                vehicle.armed = True
+                timeout = 10
+                start = time.time()
+                while not vehicle.armed and (time.time() - start) < timeout:
+                    print("Waiting for vehicle to arm...")
+                    time.sleep(0.5)
+                
+                if vehicle.armed:
+                    print("Vehicle armed successfully")
+                    send_response(True, "Vehicle armed", action)
+                else:
+                    print("Failed to arm vehicle")
+                    send_response(False, "Arm timeout", action)
+            except Exception as e:
+                print("Arm error: {}".format(e))
+                send_response(False, "Arm failed: {}".format(str(e)), action)
+
+        elif action == "disarm":
+            print("Action: Executing 'disarm' command")
+            try:
+                centering_mode = False
+                landing_mode = False
+                vehicle.armed = False
+                timeout = 10
+                start = time.time()
+                while vehicle.armed and (time.time() - start) < timeout:
+                    print("Waiting for vehicle to disarm...")
+                    time.sleep(0.5)
+                
+                if not vehicle.armed:
+                    print("Vehicle disarmed successfully")
+                    send_response(True, "Vehicle disarmed", action)
+                else:
+                    print("Failed to disarm vehicle")
+                    send_response(False, "Disarm timeout", action)
+            except Exception as e:
+                print("Disarm error: {}".format(e))
+                send_response(False, "Disarm failed: {}".format(str(e)), action)
 
         elif action == "land":
             print("Action: Executing 'land' command")
-            centering_mode = False
-            landing_mode = False  
-            vehicle.mode = VehicleMode("LAND")
-            print("Regular landing initiated (auto-landing disabled)")
-            time.sleep(1)
+            try:
+                centering_mode = False
+                landing_mode = False
+                vehicle.mode = VehicleMode("LAND")
+                print("Regular landing initiated")
+                send_response(True, "Landing initiated", action)
+            except Exception as e:
+                print("Land error: {}".format(e))
+                send_response(False, "Land failed: {}".format(str(e)), action)
 
         elif action == "auto_land":
             print("Action: Executing 'auto_land' command")
-            centering_mode = False 
-            landing_mode = True
-            print("Landing mode enabled - will auto-land on marker")
-            print("Note: This mode will auto-disable when vehicle lands")
+            try:
+                centering_mode = False
+                landing_mode = True
+                print("Auto-landing mode enabled")
+                send_response(True, "Auto-landing enabled", action)
+            except Exception as e:
+                print("Auto-land error: {}".format(e))
+                send_response(False, "Auto-land failed: {}".format(str(e)), action)
 
         elif action == "enable_centering":
-            centering_mode = True
-            print("Centering mode enabled")
+            try:
+                centering_mode = True
+                print("Centering mode enabled")
+                send_response(True, "Centering enabled", action)
+            except Exception as e:
+                print("Enable centering error: {}".format(e))
+                send_response(False, "Enable centering failed: {}".format(str(e)), action)
 
         elif action == "disable_centering":
-            centering_mode = False
-            print("Centering mode disabled")
+            try:
+                centering_mode = False
+                print("Centering mode disabled")
+                send_response(True, "Centering disabled", action)
+            except Exception as e:
+                print("Disable centering error: {}".format(e))
+                send_response(False, "Disable centering failed: {}".format(str(e)), action)
+
+        elif action == "move":
+            print("Action: Executing 'move' command to: {}".format(value))
+            try:
+                coords = value.split(",")
+                if len(coords) == 2:
+                    lat = float(coords[0].strip())
+                    lon = float(coords[1].strip())
+                    
+                    current_alt = vehicle.location.global_relative_frame.alt
+                    target_location = LocationGlobalRelative(lat, lon, current_alt)
+                    
+                    print("Moving to: lat={}, lon={}, alt={}".format(lat, lon, current_alt))
+                    vehicle.simple_goto(target_location)
+                    send_response(True, "Navigation to ({}, {}) initiated".format(lat, lon), action)
+                else:
+                    print("Invalid coordinate format")
+                    send_response(False, "Invalid format. Expected 'lat,lon'", action)
+            except (ValueError, AttributeError) as e:
+                print("Move error: {}".format(e))
+                send_response(False, "Move failed: {}".format(str(e)), action)
+
+        elif action == "emergency_stop":
+            print("!!! EMERGENCY STOP ACTIVATED !!!")
+            try:
+                centering_mode = False
+                landing_mode = False
+                vehicle.mode = VehicleMode("LAND")
+                
+                def emergency_disarm():
+                    time.sleep(5)
+                    if vehicle.armed:
+                        vehicle.armed = False
+                        print("Emergency stop complete - vehicle disarmed")
+                
+                emergency_thread = Thread(target=emergency_disarm)
+                emergency_thread.daemon = True
+                emergency_thread.start()
+                
+                send_response(True, "Emergency stop activated", action)
+            except Exception as e:
+                print("Emergency stop error: {}".format(e))
+                send_response(False, "Emergency stop failed: {}".format(str(e)), action)
 
         elif action == "status":
             print("\n" + "=" * 50)
@@ -265,13 +421,13 @@ def process_command(command):
             print("  Centering Mode: {}".format("ACTIVE" if centering_mode else "INACTIVE"))
             print("=" * 50 + "\n")
 
-        elif action == "move":
-            print("Moved to {}".format(value))
         else:
             print("Warning: Unknown command action: {}".format(action))
+            send_response(False, "Unknown command: {}".format(action), action)
 
     except (json.JSONDecodeError, ValueError) as e:
         print("Warning: Received invalid message: {}".format(e))
+        send_response(False, "Invalid message format", "unknown")
 
 
 def on_connect(client, userdata, flags, rc):
@@ -513,6 +669,11 @@ if __name__ == "__main__":
         processing_thread.daemon = True
         processing_thread.start()
         print("Image processing thread started")
+        
+        telemetry_thread = Thread(target=telemetry_publisher)
+        telemetry_thread.daemon = True
+        telemetry_thread.start()
+        print("Telemetry publisher started")
         print()
         
         print("Waiting for commands via MQTT...")

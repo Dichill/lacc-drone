@@ -12,12 +12,12 @@ import queue
 
 # --- Configuration Mode ---
 # Set to True for simulation, False for real drone
-SIMULATION_MODE: bool = True
+SIMULATION_MODE: bool = False
 
 # MQTT Broker Configuration
 # For simulation: use localhost
 # For real drone: use drone's IP address (e.g., "192.168.0.163")
-BROKER_ADDRESS: str = "localhost" if SIMULATION_MODE else "192.168.0.163"
+BROKER_ADDRESS: str = "localhost" if SIMULATION_MODE else "192.168.0.231"
 BROKER_PORT: int = 1883
 COMMAND_TOPIC: str = "drone/commands"
 STREAM_TOPIC: str = "camera/stream"

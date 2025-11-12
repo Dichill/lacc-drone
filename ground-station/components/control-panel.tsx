@@ -15,8 +15,9 @@ interface ControlPanelProps {
 export function ControlPanel({ mqtt, arUcoDetection }: ControlPanelProps) {
     const [isArmed, setIsArmed] = useState(false);
     const [isTakingOff, setIsTakingOff] = useState(false);
-    const [isLanding, setIsLanding] = useState(false);
-    const [isAutoLanding, setIsAutoLanding] = useState(false);
+    const [activeLandingMode, setActiveLandingMode] = useState<
+        "manual" | "auto" | null
+    >(null);
     const [centeringEnabled, setCenteringEnabled] = useState(false);
     const [altitude, setAltitude] = useState<string>("5.0");
     const [destination, setDestination] = useState<string>("");
@@ -46,27 +47,76 @@ export function ControlPanel({ mqtt, arUcoDetection }: ControlPanelProps) {
     };
 
     /**
-     * Handle land command
+     * Handle manual landing toggle
      */
-    const handleLand = async () => {
+    const handleManualLandingToggle = async () => {
         if (!mqtt) return;
 
-        setIsLanding(true);
+        if (activeLandingMode === "manual") {
+            setActiveLandingMode(null);
+            console.log("✓ Manual landing cancelled");
+            return;
+        }
+
+        setActiveLandingMode("manual");
         const success = await mqtt.sendLand();
 
         if (success) {
-            console.log("✓ Land command sent");
-            setTimeout(() => setIsArmed(false), 3000);
+            console.log("✓ Manual landing command sent");
+            setTimeout(() => {
+                setActiveLandingMode(null);
+                setIsArmed(false);
+            }, 10000);
         } else {
             console.error("✗ Failed to send land command");
+            setActiveLandingMode(null);
         }
-
-        setTimeout(() => setIsLanding(false), 2000);
     };
 
-    /**
-     * Handle move command
-     */
+    const handleAutoLandingToggle = async () => {
+        if (!mqtt) return;
+
+        if (activeLandingMode === "auto") {
+            setActiveLandingMode(null);
+            console.log("✓ Auto-landing cancelled");
+            return;
+        }
+
+        if (!arUcoDetected) {
+            alert("⚠️ No ArUco marker detected. Cannot initiate auto-land.");
+            return;
+        }
+
+        setActiveLandingMode("auto");
+        const success = await mqtt.sendAutoLand();
+
+        if (success) {
+            console.log("✓ Auto-land command sent");
+            setTimeout(() => {
+                setActiveLandingMode(null);
+                setIsArmed(false);
+            }, 15000);
+        } else {
+            console.error("✗ Failed to send auto-land command");
+            setActiveLandingMode(null);
+        }
+    };
+
+    const handleToggleArm = async () => {
+        if (!mqtt) return;
+
+        const success = isArmed
+            ? await mqtt.sendDisarm()
+            : await mqtt.sendArm();
+
+        if (success) {
+            setIsArmed(!isArmed);
+            console.log(`✓ Drone ${!isArmed ? "armed" : "disarmed"}`);
+        } else {
+            console.error("✗ Failed to toggle arm state");
+        }
+    };
+
     const handleMove = async () => {
         if (!mqtt || !destination.trim()) return;
 
@@ -78,32 +128,6 @@ export function ControlPanel({ mqtt, arUcoDetection }: ControlPanelProps) {
         } else {
             console.error("✗ Failed to send move command");
         }
-    };
-
-    /**
-     * Handle auto-land on ArUco marker
-     */
-    const handleAutoLand = async () => {
-        if (!mqtt) return;
-
-        if (!arUcoDetected) {
-            alert("⚠️ No ArUco marker detected. Cannot initiate auto-land.");
-            return;
-        }
-
-        setIsAutoLanding(true);
-        const success = await mqtt.sendAutoLand();
-
-        if (success) {
-            console.log("✓ Auto-land command sent");
-        } else {
-            console.error("✗ Failed to send auto-land command");
-        }
-
-        setTimeout(() => {
-            setIsAutoLanding(false);
-            setIsArmed(false);
-        }, 3000);
     };
 
     /**
@@ -126,15 +150,20 @@ export function ControlPanel({ mqtt, arUcoDetection }: ControlPanelProps) {
         }
     };
 
-    /**
-     * Handle emergency stop
-     */
-    const handleEmergencyStop = () => {
-        setIsArmed(false);
-        setIsTakingOff(false);
-        setIsLanding(false);
-        setIsAutoLanding(false);
-        console.log("⚠️ EMERGENCY STOP - All operations halted");
+    const handleEmergencyStop = async () => {
+        if (!mqtt) return;
+
+        const success = await mqtt.sendEmergencyStop();
+
+        if (success) {
+            setIsArmed(false);
+            setIsTakingOff(false);
+            setActiveLandingMode(null);
+            setCenteringEnabled(false);
+            console.log("⚠️ EMERGENCY STOP - All operations halted");
+        } else {
+            console.error("✗ Failed to send emergency stop");
+        }
     };
 
     return (
@@ -172,6 +201,33 @@ export function ControlPanel({ mqtt, arUcoDetection }: ControlPanelProps) {
                         </p>
                     </div>
                 )}
+
+                {/* Manual Arm/Disarm */}
+                <div className="p-4 bg-slate-900 rounded-lg border border-slate-800">
+                    <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3">
+                        System Status
+                    </h3>
+                    <Button
+                        onClick={handleToggleArm}
+                        disabled={!isConnected}
+                        className={`w-full h-12 disabled:opacity-50 ${
+                            isArmed
+                                ? "bg-red-600 hover:bg-red-700"
+                                : "bg-slate-600 hover:bg-slate-700"
+                        }`}
+                    >
+                        <div className="flex flex-col items-center w-full">
+                            <span className="font-semibold">
+                                {isArmed ? "DISARM DRONE" : "ARM DRONE"}
+                            </span>
+                            <span className="text-xs opacity-80">
+                                {isArmed
+                                    ? "Enable landing controls"
+                                    : "Manual arm for testing"}
+                            </span>
+                        </div>
+                    </Button>
+                </div>
 
                 {/* Takeoff Section */}
                 <div className="p-4 bg-slate-900 rounded-lg border border-slate-800">
@@ -251,42 +307,58 @@ export function ControlPanel({ mqtt, arUcoDetection }: ControlPanelProps) {
                     </h3>
                     <div className="space-y-3">
                         <Button
-                            onClick={handleLand}
-                            disabled={!isConnected || !isArmed || isLanding}
-                            className="w-full bg-sky-600 hover:bg-sky-700 disabled:opacity-50 h-12"
+                            onClick={handleManualLandingToggle}
+                            disabled={
+                                !isConnected ||
+                                (activeLandingMode !== null &&
+                                    activeLandingMode !== "manual")
+                            }
+                            className={`w-full h-12 disabled:opacity-50 ${
+                                activeLandingMode === "manual"
+                                    ? "bg-orange-600 hover:bg-orange-700 animate-pulse"
+                                    : "bg-sky-600 hover:bg-sky-700"
+                            }`}
                         >
                             <Plane className="mr-2 h-5 w-5" />
                             <div className="flex flex-col items-start">
                                 <span className="font-semibold">
-                                    {isLanding
-                                        ? "Landing..."
+                                    {activeLandingMode === "manual"
+                                        ? "Cancel Manual Landing"
                                         : "Manual Landing"}
                                 </span>
                                 <span className="text-xs opacity-80">
-                                    Standard descent
+                                    {activeLandingMode === "manual"
+                                        ? "Click to cancel"
+                                        : "Send land command"}
                                 </span>
                             </div>
                         </Button>
 
                         <Button
-                            onClick={handleAutoLand}
+                            onClick={handleAutoLandingToggle}
                             disabled={
                                 !isConnected ||
-                                !isArmed ||
-                                !arUcoDetected ||
-                                isAutoLanding
+                                (activeLandingMode !== null &&
+                                    activeLandingMode !== "auto") ||
+                                (activeLandingMode !== "auto" && !arUcoDetected)
                             }
-                            className="w-full bg-purple-600 hover:bg-purple-700 disabled:opacity-50 h-12"
+                            className={`w-full h-12 disabled:opacity-50 ${
+                                activeLandingMode === "auto"
+                                    ? "bg-orange-600 hover:bg-orange-700 animate-pulse"
+                                    : "bg-purple-600 hover:bg-purple-700"
+                            }`}
                         >
                             <Camera className="mr-2 h-5 w-5" />
                             <div className="flex flex-col items-start">
                                 <span className="font-semibold">
-                                    {isAutoLanding
-                                        ? "Auto-Landing..."
+                                    {activeLandingMode === "auto"
+                                        ? "Cancel Auto Landing"
                                         : "Auto Landing - CV"}
                                 </span>
                                 <span className="text-xs opacity-80">
-                                    {arUcoDetected
+                                    {activeLandingMode === "auto"
+                                        ? "Click to cancel"
+                                        : arUcoDetected
                                         ? "Marker detected ✓"
                                         : "No marker detected"}
                                 </span>
@@ -302,7 +374,7 @@ export function ControlPanel({ mqtt, arUcoDetection }: ControlPanelProps) {
                     </h3>
                     <Button
                         onClick={handleToggleCentering}
-                        disabled={!isConnected || !isArmed}
+                        disabled={!isConnected}
                         className={`w-full h-12 disabled:opacity-50 ${
                             centeringEnabled
                                 ? "bg-orange-600 hover:bg-orange-700"
@@ -323,16 +395,16 @@ export function ControlPanel({ mqtt, arUcoDetection }: ControlPanelProps) {
                     </Button>
                 </div>
 
-                {(isTakingOff || isLanding || isAutoLanding) && (
+                {(isTakingOff || activeLandingMode !== null) && (
                     <div className="p-3 bg-amber-950 border border-amber-800 rounded-lg">
                         <p className="text-sm text-amber-200 font-medium">
                             ⚠️ Operation in progress:{" "}
                             <span className="uppercase font-bold">
                                 {isTakingOff
                                     ? "Takeoff"
-                                    : isAutoLanding
+                                    : activeLandingMode === "auto"
                                     ? "Auto-Landing"
-                                    : "Landing"}
+                                    : "Manual Landing"}
                             </span>
                         </p>
                     </div>

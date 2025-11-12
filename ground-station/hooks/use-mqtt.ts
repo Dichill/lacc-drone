@@ -11,7 +11,10 @@ export interface DroneCommand {
         | "move"
         | "auto_land"
         | "enable_centering"
-        | "disable_centering";
+        | "disable_centering"
+        | "arm"
+        | "disarm"
+        | "emergency_stop";
     value?: string;
     altitude?: number;
     destination?: string;
@@ -30,6 +33,24 @@ export interface VideoFrame {
     timestamp: number;
 }
 
+export interface CommandResponse {
+    success: boolean;
+    message: string;
+    action: string;
+    timestamp: number;
+}
+
+export interface Telemetry {
+    armed: boolean;
+    mode: string;
+    altitude: number;
+    battery: number | null;
+    gps_fix: number | null;
+    landing_mode: boolean;
+    centering_mode: boolean;
+    timestamp: number;
+}
+
 export interface MQTTState {
     isConnected: boolean;
     isConnecting: boolean;
@@ -38,6 +59,8 @@ export interface MQTTState {
     messageCount: number;
     videoFrame: VideoFrame | null;
     arUcoDetection: ArUcoDetection | null;
+    lastResponse: CommandResponse | null;
+    telemetry: Telemetry | null;
 }
 
 export interface UseMQTTReturn extends MQTTState {
@@ -50,6 +73,9 @@ export interface UseMQTTReturn extends MQTTState {
     sendAutoLand: () => Promise<boolean>;
     sendEnableCentering: () => Promise<boolean>;
     sendDisableCentering: () => Promise<boolean>;
+    sendArm: () => Promise<boolean>;
+    sendDisarm: () => Promise<boolean>;
+    sendEmergencyStop: () => Promise<boolean>;
 }
 
 export function useMQTT(): UseMQTTReturn {
@@ -61,6 +87,8 @@ export function useMQTT(): UseMQTTReturn {
         messageCount: 0,
         videoFrame: null,
         arUcoDetection: null,
+        lastResponse: null,
+        telemetry: null,
     });
 
     const clientRef = useRef<MqttClient | null>(null);
@@ -85,6 +113,25 @@ export function useMQTT(): UseMQTTReturn {
                 setState((prev) => ({
                     ...prev,
                     arUcoDetection: detectionData,
+                }));
+            } else if (topic === MQTT_TOPICS.RESPONSE) {
+                const responseData: CommandResponse = JSON.parse(
+                    payload.toString("utf-8")
+                );
+                console.log(
+                    `← Response: ${responseData.action} - ${responseData.message}`
+                );
+                setState((prev) => ({
+                    ...prev,
+                    lastResponse: responseData,
+                }));
+            } else if (topic === MQTT_TOPICS.TELEMETRY) {
+                const telemetryData: Telemetry = JSON.parse(
+                    payload.toString("utf-8")
+                );
+                setState((prev) => ({
+                    ...prev,
+                    telemetry: telemetryData,
                 }));
             }
 
@@ -145,6 +192,32 @@ export function useMQTT(): UseMQTTReturn {
                     }
                 });
 
+                client.subscribe(MQTT_TOPICS.RESPONSE, { qos: 1 }, (error) => {
+                    if (error) {
+                        console.error(
+                            "Failed to subscribe to responses:",
+                            error
+                        );
+                    } else {
+                        console.log(
+                            `✓ Subscribed to responses: ${MQTT_TOPICS.RESPONSE}`
+                        );
+                    }
+                });
+
+                client.subscribe(MQTT_TOPICS.TELEMETRY, { qos: 0 }, (error) => {
+                    if (error) {
+                        console.error(
+                            "Failed to subscribe to telemetry:",
+                            error
+                        );
+                    } else {
+                        console.log(
+                            `✓ Subscribed to telemetry: ${MQTT_TOPICS.TELEMETRY}`
+                        );
+                    }
+                });
+
                 setState((prev) => ({
                     ...prev,
                     isConnected: true,
@@ -196,9 +269,6 @@ export function useMQTT(): UseMQTTReturn {
         }
     }, [handleMessage]);
 
-    /**
-     * Disconnect from MQTT broker
-     */
     const disconnect = useCallback(async () => {
         if (clientRef.current) {
             await clientRef.current.endAsync();
@@ -213,6 +283,8 @@ export function useMQTT(): UseMQTTReturn {
             messageCount: 0,
             videoFrame: null,
             arUcoDetection: null,
+            lastResponse: null,
+            telemetry: null,
         });
     }, []);
 
@@ -296,6 +368,18 @@ export function useMQTT(): UseMQTTReturn {
         return sendCommand({ action: "disable_centering" });
     }, [sendCommand]);
 
+    const sendArm = useCallback(async (): Promise<boolean> => {
+        return sendCommand({ action: "arm" });
+    }, [sendCommand]);
+
+    const sendDisarm = useCallback(async (): Promise<boolean> => {
+        return sendCommand({ action: "disarm" });
+    }, [sendCommand]);
+
+    const sendEmergencyStop = useCallback(async (): Promise<boolean> => {
+        return sendCommand({ action: "emergency_stop" });
+    }, [sendCommand]);
+
     /**
      * Cleanup on unmount
      */
@@ -318,5 +402,8 @@ export function useMQTT(): UseMQTTReturn {
         sendAutoLand,
         sendEnableCentering,
         sendDisableCentering,
+        sendArm,
+        sendDisarm,
+        sendEmergencyStop,
     };
 }

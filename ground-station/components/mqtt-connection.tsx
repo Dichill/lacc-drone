@@ -5,15 +5,17 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Wifi, WifiOff, Activity, Radio } from "lucide-react";
-import { useMQTT } from "@/hooks/use-mqtt";
+import type { UseMQTTReturn } from "@/hooks/use-mqtt";
 
 interface MQTTConnectionProps {
-    onConnectionReady?: (mqttMethods: ReturnType<typeof useMQTT>) => void;
+    mqtt: UseMQTTReturn;
+    onConnectionReady?: (mqttMethods: UseMQTTReturn) => void;
 }
 
-export function MQTTConnection({ onConnectionReady }: MQTTConnectionProps) {
-    const mqtt = useMQTT();
-
+export function MQTTConnection({
+    mqtt,
+    onConnectionReady,
+}: MQTTConnectionProps) {
     React.useEffect(() => {
         if (mqtt.isConnected && onConnectionReady) {
             onConnectionReady(mqtt);

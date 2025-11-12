@@ -1,4 +1,4 @@
-export const SIMULATION_MODE: boolean = true;
+export const SIMULATION_MODE: boolean = false;
 
 /**
  * MQTT Broker Configuration
@@ -9,7 +9,7 @@ export const MQTT_CONFIG = {
      * - localhost for simulation
      * - 192.168.0.163 for real drone
      */
-    BROKER_ADDRESS: SIMULATION_MODE ? "localhost" : "192.168.0.163",
+    BROKER_ADDRESS: SIMULATION_MODE ? "localhost" : "192.168.0.231",
 
     /**
      * Broker port
@@ -30,6 +30,8 @@ export const MQTT_TOPICS = {
     COMMAND: "drone/commands",
     STREAM: "camera/stream",
     ARUCO: "drone/aruco_detection",
+    RESPONSE: "drone/responses",
+    TELEMETRY: "drone/telemetry",
 } as const;
 
 /**

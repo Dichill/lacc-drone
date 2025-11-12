@@ -182,7 +182,7 @@ export default function Home() {
                             <div className="w-1 h-5 bg-purple-500 mr-3 rounded" />
                             Connection
                         </h2>
-                        <MQTTConnection />
+                        <MQTTConnection mqtt={mqtt} />
                     </div>
 
                     {/* Mission Control */}
