@@ -45,9 +45,7 @@ export function ControlPanel({
     const lastResponse = mqtt?.lastResponse;
 
     const isCorrectMarkerDetected =
-        markerLocked &&
-        arUcoDetected &&
-        arUcoDetection?.marker_id === lockedMarkerId;
+        markerLocked && lockedMarkerId !== undefined;
 
     useEffect(() => {
         if (telemetry) {

@@ -103,69 +103,6 @@ export function MQTTConnection({
                             </div>
                         </div>
 
-                        {mqtt.arUcoDetection && (
-                            <div className="p-3 bg-slate-900 rounded-lg border border-slate-800">
-                                <div className="space-y-2">
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-xs text-slate-400 uppercase tracking-wide">
-                                            ArUco Detection
-                                        </span>
-                                        <Badge
-                                            variant={
-                                                mqtt.arUcoDetection.detected
-                                                    ? "default"
-                                                    : "secondary"
-                                            }
-                                            className="text-xs"
-                                        >
-                                            {mqtt.arUcoDetection.detected
-                                                ? "Detected"
-                                                : "Not Detected"}
-                                        </Badge>
-                                    </div>
-                                    {mqtt.arUcoDetection.detected && (
-                                        <div className="space-y-1 text-xs text-slate-300 font-mono">
-                                            {mqtt.arUcoDetection.marker_id !==
-                                                undefined && (
-                                                <div className="flex justify-between">
-                                                    <span>Marker ID:</span>
-                                                    <span className="text-emerald-400">
-                                                        {
-                                                            mqtt.arUcoDetection
-                                                                .marker_id
-                                                        }
-                                                    </span>
-                                                </div>
-                                            )}
-                                            {mqtt.arUcoDetection.distance !==
-                                                undefined && (
-                                                <div className="flex justify-between">
-                                                    <span>Distance:</span>
-                                                    <span className="text-emerald-400">
-                                                        {mqtt.arUcoDetection.distance.toFixed(
-                                                            2
-                                                        )}
-                                                        m
-                                                    </span>
-                                                </div>
-                                            )}
-                                            {mqtt.arUcoDetection.angle !==
-                                                undefined && (
-                                                <div className="flex justify-between">
-                                                    <span>Angle:</span>
-                                                    <span className="text-emerald-400">
-                                                        {mqtt.arUcoDetection.angle.toFixed(
-                                                            1
-                                                        )}
-                                                        °
-                                                    </span>
-                                                </div>
-                                            )}
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        )}
 
                         {mqtt.videoFrame && (
                             <div className="p-3 bg-slate-900 rounded-lg border border-slate-800">

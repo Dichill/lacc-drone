@@ -41,6 +41,7 @@ export function ArUcoDetectionDisplay({
     const [cachedMarkers, setCachedMarkers] = useState<
         Map<number, CachedMarker>
     >(new Map());
+    const [hasEverDetected, setHasEverDetected] = useState(false);
 
     const handleLockIn = React.useCallback(
         (markerId: number) => {
@@ -60,6 +61,7 @@ export function ArUcoDetectionDisplay({
     useEffect(() => {
         if (isDetected && detection?.marker_id !== undefined) {
             const markerId = detection.marker_id;
+            setHasEverDetected(true);
             setCachedMarkers((prev) => {
                 const updated = new Map(prev);
                 updated.set(markerId, {
@@ -95,6 +97,10 @@ export function ArUcoDetectionDisplay({
                     if (timeSinceLastSeen > MARKER_CACHE_TIMEOUT) {
                         updated.delete(id);
                         hasChanges = true;
+
+                        if (isLocked && id === lockedMarkerId) {
+                            handleUnlock();
+                        }
                     } else if (marker.isLive && timeSinceLastSeen > 1000) {
                         updated.set(id, { ...marker, isLive: false });
                         hasChanges = true;
@@ -106,12 +112,19 @@ export function ArUcoDetectionDisplay({
         }, 250);
 
         return () => clearInterval(interval);
-    }, []);
+    }, [isLocked, lockedMarkerId, handleUnlock]);
 
-    const isCorrectMarker = isLocked && detection?.marker_id === lockedMarkerId;
     const cachedMarkerArray = Array.from(cachedMarkers.values()).sort(
         (a, b) => b.lastSeen - a.lastSeen
     );
+
+    const lockedMarkerInCache =
+        isLocked && lockedMarkerId !== null
+            ? cachedMarkers.get(lockedMarkerId)
+            : null;
+
+    const isCorrectMarker = isLocked && lockedMarkerInCache !== undefined;
+    const isLockedMarkerLive = lockedMarkerInCache?.isLive ?? false;
 
     const getTimeSinceLastSeen = (lastSeen: number) => {
         const seconds = Math.floor((Date.now() - lastSeen) / 1000);
@@ -198,110 +211,135 @@ export function ArUcoDetectionDisplay({
                             </div>
                         </div>
                     </div>
-                ) : cachedMarkerArray.length > 0 || isDetected ? (
+                ) : hasEverDetected || cachedMarkerArray.length > 0 ? (
                     <div className="space-y-3">
-                        <div className="p-4 bg-slate-900 rounded-lg border border-slate-800">
+                        <div className="p-4 bg-slate-900 rounded-lg border border-slate-800 min-h-[120px]">
                             <h4 className="text-sm font-semibold text-slate-300 mb-3">
                                 Detected Markers
                             </h4>
-                            <div className="space-y-2">
-                                {cachedMarkerArray.map((marker) => (
-                                    <div
-                                        key={marker.id}
-                                        className={`p-3 rounded-lg border flex items-center justify-between ${
-                                            isLocked &&
-                                            lockedMarkerId === marker.id
-                                                ? "bg-emerald-950 border-emerald-800"
-                                                : "bg-slate-800 border-slate-700"
-                                        }`}
-                                    >
-                                        <div className="flex-1">
-                                            <div className="flex items-center gap-2">
-                                                <span className="text-lg font-bold text-slate-200 font-mono">
-                                                    ID {marker.id}
-                                                </span>
-                                                {marker.isLive ? (
-                                                    <Badge
-                                                        variant="default"
-                                                        className="text-xs bg-emerald-600"
-                                                    >
-                                                        <Scan className="mr-1 h-3 w-3" />
-                                                        Live
-                                                    </Badge>
-                                                ) : (
-                                                    <Badge
-                                                        variant="secondary"
-                                                        className="text-xs"
-                                                    >
-                                                        <Clock className="mr-1 h-3 w-3" />
-                                                        {getTimeSinceLastSeen(
-                                                            marker.lastSeen
-                                                        )}
-                                                    </Badge>
-                                                )}
+                            {cachedMarkerArray.length > 0 ? (
+                                <div className="space-y-2">
+                                    {cachedMarkerArray.map((marker) => (
+                                        <div
+                                            key={marker.id}
+                                            className={`p-3 rounded-lg border flex items-center justify-between ${
+                                                isLocked &&
+                                                lockedMarkerId === marker.id
+                                                    ? "bg-emerald-950 border-emerald-800"
+                                                    : "bg-slate-800 border-slate-700"
+                                            }`}
+                                        >
+                                            <div className="flex-1">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-lg font-bold text-slate-200 font-mono">
+                                                        ID {marker.id}
+                                                    </span>
+                                                    {marker.isLive ? (
+                                                        <Badge
+                                                            variant="default"
+                                                            className="text-xs bg-emerald-600"
+                                                        >
+                                                            <Scan className="mr-1 h-3 w-3" />
+                                                            Live
+                                                        </Badge>
+                                                    ) : (
+                                                        <Badge
+                                                            variant="secondary"
+                                                            className="text-xs"
+                                                        >
+                                                            <Clock className="mr-1 h-3 w-3" />
+                                                            {getTimeSinceLastSeen(
+                                                                marker.lastSeen
+                                                            )}
+                                                        </Badge>
+                                                    )}
+                                                </div>
                                             </div>
+                                            {isLocked &&
+                                            lockedMarkerId === marker.id ? (
+                                                <Button
+                                                    onClick={handleUnlock}
+                                                    variant="outline"
+                                                    size="sm"
+                                                    className="border-emerald-700 text-emerald-200 hover:bg-emerald-900"
+                                                >
+                                                    <Unlock className="mr-2 h-3 w-3" />
+                                                    Unlock
+                                                </Button>
+                                            ) : !isLocked ? (
+                                                <Button
+                                                    onClick={() =>
+                                                        handleLockIn(marker.id)
+                                                    }
+                                                    size="sm"
+                                                    className="bg-purple-600 hover:bg-purple-700"
+                                                >
+                                                    <Lock className="mr-2 h-3 w-3" />
+                                                    Lock
+                                                </Button>
+                                            ) : null}
                                         </div>
-                                        {isLocked &&
-                                        lockedMarkerId === marker.id ? (
-                                            <Button
-                                                onClick={handleUnlock}
-                                                variant="outline"
-                                                size="sm"
-                                                className="border-emerald-700 text-emerald-200 hover:bg-emerald-900"
-                                            >
-                                                <Unlock className="mr-2 h-3 w-3" />
-                                                Unlock
-                                            </Button>
-                                        ) : !isLocked ? (
-                                            <Button
-                                                onClick={() =>
-                                                    handleLockIn(marker.id)
-                                                }
-                                                size="sm"
-                                                className="bg-purple-600 hover:bg-purple-700"
-                                            >
-                                                <Lock className="mr-2 h-3 w-3" />
-                                                Lock
-                                            </Button>
-                                        ) : null}
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="flex items-center gap-3 text-slate-500 py-4">
+                                    <ScanSearch className="h-6 w-6 animate-pulse" />
+                                    <div>
+                                        <p className="text-sm font-medium">
+                                            Scanning for markers...
+                                        </p>
+                                        <p className="text-xs mt-1 opacity-80">
+                                            No markers detected in the last 5
+                                            seconds
+                                        </p>
                                     </div>
-                                ))}
-                            </div>
+                                </div>
+                            )}
                         </div>
 
                         <div
                             className={`p-4 rounded-lg ${
-                                isLocked && isCorrectMarker
+                                isCorrectMarker
                                     ? "bg-emerald-950 border border-emerald-800"
-                                    : isLocked && !isCorrectMarker
+                                    : isLocked
                                     ? "bg-red-950 border border-red-800"
                                     : "bg-emerald-950 border border-emerald-800"
                             }`}
                         >
                             <div
                                 className={`flex items-center gap-3 ${
-                                    isLocked && isCorrectMarker
+                                    isCorrectMarker
                                         ? "text-emerald-200"
-                                        : isLocked && !isCorrectMarker
+                                        : isLocked
                                         ? "text-red-200"
                                         : "text-emerald-200"
                                 }`}
                             >
-                                <Scan className="h-8 w-8" />
+                                {isCorrectMarker ? (
+                                    isLockedMarkerLive ? (
+                                        <Scan className="h-8 w-8" />
+                                    ) : (
+                                        <Clock className="h-8 w-8" />
+                                    )
+                                ) : (
+                                    <ScanSearch className="h-8 w-8 animate-pulse" />
+                                )}
                                 <div className="flex-1">
                                     <p className="text-sm font-semibold">
-                                        {isLocked && isCorrectMarker
-                                            ? "Locked Target Detected"
-                                            : isLocked && !isCorrectMarker
-                                            ? "Wrong Marker Detected"
+                                        {isCorrectMarker
+                                            ? isLockedMarkerLive
+                                                ? `Locked on Marker ${lockedMarkerId} - Live`
+                                                : `Locked on Marker ${lockedMarkerId} - Cached`
+                                            : isLocked
+                                            ? `Searching for Marker ${lockedMarkerId}`
                                             : "Marker Detected"}
                                     </p>
                                     <p className="text-xs mt-1 opacity-80">
-                                        {isLocked && isCorrectMarker
+                                        {isCorrectMarker
                                             ? "Ready for auto-land"
-                                            : isLocked && !isCorrectMarker
-                                            ? `Looking for Marker ${lockedMarkerId}`
-                                            : "Auto-land available after lock"}
+                                            : isLocked
+                                            ? "Marker lost - expires in 5s"
+                                            : "Lock marker to enable auto-land"}
                                     </p>
                                 </div>
                                 {isLocked && (
@@ -309,88 +347,17 @@ export function ArUcoDetectionDisplay({
                                         onClick={handleUnlock}
                                         variant="outline"
                                         size="sm"
-                                        className="border-slate-700"
+                                        className={
+                                            isCorrectMarker
+                                                ? "border-emerald-700 text-emerald-200 hover:bg-emerald-900"
+                                                : "border-red-700 text-red-200 hover:bg-red-900"
+                                        }
                                     >
                                         <Unlock className="mr-2 h-3 w-3" />
                                         Unlock
                                     </Button>
                                 )}
                             </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 gap-3">
-                            {detection.marker_id !== undefined && (
-                                <div className="p-3 bg-slate-900 rounded-lg border border-slate-800">
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-xs text-slate-400 uppercase tracking-wide">
-                                            Marker ID
-                                        </span>
-                                        <span className="text-2xl font-bold text-emerald-400 font-mono">
-                                            {detection.marker_id}
-                                        </span>
-                                    </div>
-                                </div>
-                            )}
-
-                            {detection.distance !== undefined && (
-                                <div className="p-3 bg-slate-900 rounded-lg border border-slate-800">
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-xs text-slate-400 uppercase tracking-wide">
-                                            Distance
-                                        </span>
-                                        <div className="text-right">
-                                            <span className="text-2xl font-bold text-sky-400 font-mono">
-                                                {detection.distance.toFixed(2)}
-                                            </span>
-                                            <span className="text-sm text-slate-400 ml-1">
-                                                m
-                                            </span>
-                                        </div>
-                                    </div>
-                                    <div className="mt-2 w-full bg-slate-800 rounded-full h-2">
-                                        <div
-                                            className="bg-sky-500 h-2 rounded-full transition-all"
-                                            style={{
-                                                width: `${Math.min(
-                                                    (10 /
-                                                        (detection.distance ||
-                                                            10)) *
-                                                        100,
-                                                    100
-                                                )}%`,
-                                            }}
-                                        />
-                                    </div>
-                                </div>
-                            )}
-
-                            {detection.angle !== undefined && (
-                                <div className="p-3 bg-slate-900 rounded-lg border border-slate-800">
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-xs text-slate-400 uppercase tracking-wide">
-                                            Angle
-                                        </span>
-                                        <div className="text-right">
-                                            <span className="text-2xl font-bold text-purple-400 font-mono">
-                                                {detection.angle.toFixed(1)}
-                                            </span>
-                                            <span className="text-sm text-slate-400 ml-1">
-                                                °
-                                            </span>
-                                        </div>
-                                    </div>
-                                    <div className="mt-2 flex items-center justify-center">
-                                        <div
-                                            className="w-16 h-16 border-2 border-purple-500 rounded-full relative"
-                                            style={{
-                                                transform: `rotate(${detection.angle}deg)`,
-                                            }}
-                                        >
-                                            <div className="absolute top-0 left-1/2 w-0.5 h-8 bg-purple-400 -translate-x-1/2" />
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
                         </div>
 
                         {/* Additional detection data */}
@@ -420,12 +387,12 @@ export function ArUcoDetectionDisplay({
                         )}
                     </div>
                 ) : (
-                    <div className="p-4 bg-slate-900 rounded-lg border border-slate-800">
+                    <div className="p-4 bg-slate-900 rounded-lg border border-slate-800 min-h-[120px] flex items-center">
                         <div className="flex items-center gap-3 text-slate-500">
-                            <ScanSearch className="h-8 w-8" />
+                            <ScanSearch className="h-8 w-8 animate-pulse" />
                             <div>
                                 <p className="text-sm font-medium">
-                                    No Marker Detected
+                                    Scanning for markers...
                                 </p>
                                 <p className="text-xs mt-1">
                                     Position camera to view ArUco marker

@@ -74,7 +74,7 @@ np_dist_coeff = np.array(dist_coeff)
 
 #####
 time_last = 0
-time_to_wait = 0.033
+time_to_wait = 0.05
 
 # MQTT Global State
 mqtt_client = None
@@ -559,11 +559,13 @@ def process_images():
             current_time = time.time()
             
             should_process_aruco = (current_time - last_aruco_time) >= aruco_rate_limit
-            should_stream = (current_time - last_stream_time) >= stream_rate_limit
-            should_publish_aruco = (current_time - last_aruco_publish_time) >= aruco_publish_rate_limit
             
             was_detected = last_detection_data.get("detected", False)
             force_process = landing_mode or centering_mode
+            
+            adaptive_stream_rate = stream_rate_limit * 1.5 if was_detected else stream_rate_limit
+            should_stream = (current_time - last_stream_time) >= adaptive_stream_rate
+            should_publish_aruco = (current_time - last_aruco_publish_time) >= aruco_publish_rate_limit
             
             if should_process_aruco or force_process:
                 gray_img = cv2.cvtColor(np_data, cv2.COLOR_BGR2GRAY)
@@ -720,8 +722,10 @@ def process_images():
                         last_aruco_publish_time = current_time
                     
                     if should_stream:
-                        encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 40]
-                        ret_encode, jpeg = cv2.imencode(".jpg", np_data, encode_param)
+                        stream_img = cv2.resize(np_data, (640, 480), interpolation=cv2.INTER_AREA)
+                        
+                        encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 35]
+                        ret_encode, jpeg = cv2.imencode(".jpg", stream_img, encode_param)
                         if ret_encode:
                             jpg_as_text = base64.b64encode(jpeg).decode("utf-8")
                             mqtt_client.publish(stream_topic, jpg_as_text, qos=0)
@@ -729,11 +733,12 @@ def process_images():
                 except Exception as e:
                     print("MQTT publish error: {}".format(e))
 
-            try:
-                new_msg = rnp.msgify(Image, np_data, encoding="rgb8")
-                newimg_pub.publish(new_msg)
-            except Exception as e:
-                print("ROS publish error: {}".format(e))
+            if not (landing_mode or centering_mode):
+                try:
+                    new_msg = rnp.msgify(Image, np_data, encoding="rgb8")
+                    newimg_pub.publish(new_msg)
+                except Exception as e:
+                    print("ROS publish error: {}".format(e))
                 
         except queue.Empty:
             continue
