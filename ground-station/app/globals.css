@@ -118,5 +118,63 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+}
+
+@layer utilities {
+  .font-mono-tabular {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+
+  .glow-sky {
+    box-shadow: 0 0 10px rgba(14, 165, 233, 0.3),
+                0 0 20px rgba(14, 165, 233, 0.2);
+  }
+
+  .glow-emerald {
+    box-shadow: 0 0 10px rgba(16, 185, 129, 0.3),
+                0 0 20px rgba(16, 185, 129, 0.2);
+  }
+
+  .glow-amber {
+    box-shadow: 0 0 10px rgba(245, 158, 11, 0.3),
+                0 0 20px rgba(245, 158, 11, 0.2);
+  }
+
+  .glow-red {
+    box-shadow: 0 0 10px rgba(239, 68, 68, 0.3),
+                0 0 20px rgba(239, 68, 68, 0.2);
+  }
+
+  .scanlines {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .scanlines::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      rgba(0, 0, 0, 0.15) 0px,
+      transparent 1px,
+      transparent 2px,
+      rgba(0, 0, 0, 0.15) 3px
+    );
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  .grid-background {
+    background-image: 
+      linear-gradient(rgba(148, 163, 184, 0.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(148, 163, 184, 0.05) 1px, transparent 1px);
+    background-size: 20px 20px;
   }
 }
