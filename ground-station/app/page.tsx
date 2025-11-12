@@ -48,11 +48,15 @@ export default function Home() {
         timestamp: mqtt.telemetry?.timestamp ?? 0,
     };
 
-    const handleManualControl = (direction: string, active: boolean) => {
-        console.log(
-            `Manual control: ${direction} - ${active ? "ACTIVE" : "RELEASED"}`
-        );
-        // TODO: Implement manual control via MQTT if needed
+    const handleManualControl = async (direction: string, active: boolean) => {
+        if (mqtt.isConnected) {
+            await mqtt.sendManualControl(direction, active);
+            console.log(
+                `Manual control: ${direction} - ${
+                    active ? "ACTIVE" : "RELEASED"
+                }`
+            );
+        }
     };
 
     return (
@@ -249,7 +253,9 @@ export default function Home() {
                         </h2>
                         <ManualControls
                             onControl={handleManualControl}
-                            enabled={mqtt.isConnected}
+                            enabled={
+                                mqtt.isConnected && (telemetry.armed ?? false)
+                            }
                         />
                     </div>
                 </div>

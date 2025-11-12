@@ -315,6 +315,14 @@ def process_command(command):
             try:
                 centering_mode = False
                 landing_mode = False
+                
+                current_mode = vehicle.mode.name
+                if current_mode != "LAND" and vehicle.location.global_relative_frame.alt > 0.5:
+                    print("Warning: Vehicle not landed. Switching to LAND mode first.")
+                    vehicle.mode = VehicleMode("LAND")
+                    send_response(True, "Landing before disarm", action)
+                    return
+                
                 vehicle.armed = False
                 timeout = 10
                 start = time.time()
@@ -327,7 +335,7 @@ def process_command(command):
                     send_response(True, "Vehicle disarmed", action)
                 else:
                     print("Failed to disarm vehicle")
-                    send_response(False, "Disarm timeout", action)
+                    send_response(False, "Disarm timeout - vehicle may not be landed", action)
             except Exception as e:
                 print("Disarm error: {}".format(e))
                 send_response(False, "Disarm failed: {}".format(str(e)), action)
@@ -415,6 +423,67 @@ def process_command(command):
             except Exception as e:
                 print("Emergency stop error: {}".format(e))
                 send_response(False, "Emergency stop failed: {}".format(str(e)), action)
+
+        elif action == "manual_control":
+            direction = data.get("direction", "")
+            active = data.get("active", False)
+            
+            try:
+                if not vehicle.armed:
+                    send_response(False, "Vehicle not armed", action)
+                    return
+                
+                if vehicle.mode.name != "GUIDED":
+                    vehicle.mode = VehicleMode("GUIDED")
+                    time.sleep(0.5)
+                
+                velocity_scale = 2.0
+                yaw_rate = 30.0
+                
+                if active:
+                    if direction == "forward":
+                        send_local_ned_velocity(velocity_scale, 0, 0)
+                        print("Manual control: Forward")
+                    elif direction == "backward":
+                        send_local_ned_velocity(-velocity_scale, 0, 0)
+                        print("Manual control: Backward")
+                    elif direction == "left":
+                        send_local_ned_velocity(0, -velocity_scale, 0)
+                        print("Manual control: Left")
+                    elif direction == "right":
+                        send_local_ned_velocity(0, velocity_scale, 0)
+                        print("Manual control: Right")
+                    elif direction == "up":
+                        send_local_ned_velocity(0, 0, -velocity_scale)
+                        print("Manual control: Up")
+                    elif direction == "down":
+                        send_local_ned_velocity(0, 0, velocity_scale)
+                        print("Manual control: Down")
+                    elif direction == "yaw-left":
+                        msg = vehicle.message_factory.command_long_encode(
+                            0, 0,
+                            mavutil.mavlink.MAV_CMD_CONDITION_YAW,
+                            0,
+                            0, -yaw_rate, 0, 1, 0, 0, 0
+                        )
+                        vehicle.send_mavlink(msg)
+                        print("Manual control: Yaw Left")
+                    elif direction == "yaw-right":
+                        msg = vehicle.message_factory.command_long_encode(
+                            0, 0,
+                            mavutil.mavlink.MAV_CMD_CONDITION_YAW,
+                            0,
+                            0, yaw_rate, 0, 1, 0, 0, 0
+                        )
+                        vehicle.send_mavlink(msg)
+                        print("Manual control: Yaw Right")
+                else:
+                    send_local_ned_velocity(0, 0, 0)
+                    print("Manual control: Stop {}".format(direction))
+                    
+            except Exception as e:
+                print("Manual control error: {}".format(e))
+                send_response(False, "Manual control failed: {}".format(str(e)), action)
 
         elif action == "status":
             print("\n" + "=" * 50)

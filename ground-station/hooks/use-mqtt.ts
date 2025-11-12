@@ -14,10 +14,13 @@ export interface DroneCommand {
         | "disable_centering"
         | "arm"
         | "disarm"
-        | "emergency_stop";
+        | "emergency_stop"
+        | "manual_control";
     value?: string;
     altitude?: number;
     destination?: string;
+    direction?: string;
+    active?: boolean;
 }
 
 export interface ArUcoDetection {
@@ -82,6 +85,7 @@ export interface UseMQTTReturn extends MQTTState {
     sendArm: () => Promise<boolean>;
     sendDisarm: () => Promise<boolean>;
     sendEmergencyStop: () => Promise<boolean>;
+    sendManualControl: (direction: string, active: boolean) => Promise<boolean>;
 }
 
 export function useMQTT(): UseMQTTReturn {
@@ -386,9 +390,17 @@ export function useMQTT(): UseMQTTReturn {
         return sendCommand({ action: "emergency_stop" });
     }, [sendCommand]);
 
-    /**
-     * Cleanup on unmount
-     */
+    const sendManualControl = useCallback(
+        async (direction: string, active: boolean): Promise<boolean> => {
+            return sendCommand({
+                action: "manual_control",
+                direction,
+                active,
+            });
+        },
+        [sendCommand]
+    );
+
     useEffect(() => {
         return () => {
             if (clientRef.current) {
@@ -411,5 +423,6 @@ export function useMQTT(): UseMQTTReturn {
         sendArm,
         sendDisarm,
         sendEmergencyStop,
+        sendManualControl,
     };
 }
