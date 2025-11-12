@@ -236,6 +236,12 @@ def telemetry_publisher():
                     "gps_fix": vehicle.gps_0.fix_type if vehicle.gps_0 else None,
                     "landing_mode": landing_mode,
                     "centering_mode": centering_mode,
+                    "ground_speed": vehicle.groundspeed if vehicle.groundspeed else 0.0,
+                    "airspeed": vehicle.airspeed if vehicle.airspeed else 0.0,
+                    "vertical_speed": vehicle.velocity[2] if vehicle.velocity and len(vehicle.velocity) > 2 else 0.0,
+                    "heading": vehicle.heading if vehicle.heading else 0,
+                    "latitude": vehicle.location.global_relative_frame.lat,
+                    "longitude": vehicle.location.global_relative_frame.lon,
                     "timestamp": time.time()
                 }
                 mqtt_client.publish(telemetry_topic, json.dumps(telemetry), qos=0)

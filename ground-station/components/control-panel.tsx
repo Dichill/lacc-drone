@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -10,9 +10,16 @@ import type { UseMQTTReturn, ArUcoDetection } from "@/hooks/use-mqtt";
 interface ControlPanelProps {
     mqtt: UseMQTTReturn | null;
     arUcoDetection: ArUcoDetection | null;
+    markerLocked?: boolean;
+    lockedMarkerId?: number;
 }
 
-export function ControlPanel({ mqtt, arUcoDetection }: ControlPanelProps) {
+export function ControlPanel({
+    mqtt,
+    arUcoDetection,
+    markerLocked = false,
+    lockedMarkerId,
+}: ControlPanelProps) {
     const [isArmed, setIsArmed] = useState(false);
     const [isTakingOff, setIsTakingOff] = useState(false);
     const [activeLandingMode, setActiveLandingMode] = useState<
@@ -24,6 +31,37 @@ export function ControlPanel({ mqtt, arUcoDetection }: ControlPanelProps) {
 
     const isConnected = mqtt?.isConnected ?? false;
     const arUcoDetected = arUcoDetection?.detected ?? false;
+    const telemetry = mqtt?.telemetry;
+    const lastResponse = mqtt?.lastResponse;
+
+    const isCorrectMarkerDetected =
+        markerLocked &&
+        arUcoDetected &&
+        arUcoDetection?.marker_id === lockedMarkerId;
+
+    useEffect(() => {
+        if (telemetry) {
+            setIsArmed(telemetry.armed);
+            setCenteringEnabled(telemetry.centering_mode);
+            if (telemetry.landing_mode) {
+                setActiveLandingMode("auto");
+            } else if (telemetry.mode === "LAND" && !telemetry.landing_mode) {
+                setActiveLandingMode("manual");
+            } else {
+                setActiveLandingMode(null);
+            }
+        }
+    }, [telemetry]);
+
+    useEffect(() => {
+        if (lastResponse) {
+            if (!lastResponse.success) {
+                console.error(
+                    `Command ${lastResponse.action} failed: ${lastResponse.message}`
+                );
+            }
+        }
+    }, [lastResponse]);
 
     /**
      * Handle takeoff command
@@ -82,8 +120,17 @@ export function ControlPanel({ mqtt, arUcoDetection }: ControlPanelProps) {
             return;
         }
 
-        if (!arUcoDetected) {
-            alert("⚠️ No ArUco marker detected. Cannot initiate auto-land.");
+        if (!markerLocked) {
+            alert(
+                "⚠️ No marker locked. Please lock onto a marker first in the Marker Detection panel."
+            );
+            return;
+        }
+
+        if (!isCorrectMarkerDetected) {
+            alert(
+                `⚠️ Locked marker (ID ${lockedMarkerId}) not detected. Position camera to view the correct marker.`
+            );
             return;
         }
 
@@ -91,7 +138,9 @@ export function ControlPanel({ mqtt, arUcoDetection }: ControlPanelProps) {
         const success = await mqtt.sendAutoLand();
 
         if (success) {
-            console.log("✓ Auto-land command sent");
+            console.log(
+                `✓ Auto-land command sent (locked on Marker ${lockedMarkerId})`
+            );
             setTimeout(() => {
                 setActiveLandingMode(null);
                 setIsArmed(false);
@@ -202,6 +251,63 @@ export function ControlPanel({ mqtt, arUcoDetection }: ControlPanelProps) {
                     </div>
                 )}
 
+                {lastResponse && !lastResponse.success && (
+                    <div className="p-3 bg-red-950 border border-red-800 rounded-lg">
+                        <p className="text-sm text-red-200">
+                            <strong className="uppercase">
+                                {lastResponse.action}
+                            </strong>
+                            : {lastResponse.message}
+                        </p>
+                    </div>
+                )}
+
+                {telemetry && (
+                    <div className="p-4 bg-slate-900 rounded-lg border border-slate-800">
+                        <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3">
+                            Live Telemetry
+                        </h3>
+                        <div className="grid grid-cols-2 gap-3 text-sm">
+                            <div>
+                                <span className="text-slate-500">Mode:</span>
+                                <span className="ml-2 text-slate-200 font-mono">
+                                    {telemetry.mode}
+                                </span>
+                            </div>
+                            <div>
+                                <span className="text-slate-500">
+                                    Altitude:
+                                </span>
+                                <span className="ml-2 text-slate-200 font-mono">
+                                    {(telemetry.altitude ?? 0).toFixed(2)}m
+                                </span>
+                            </div>
+                            {telemetry.battery !== null &&
+                                telemetry.battery !== undefined && (
+                                    <div>
+                                        <span className="text-slate-500">
+                                            Battery:
+                                        </span>
+                                        <span className="ml-2 text-slate-200 font-mono">
+                                            {telemetry.battery}%
+                                        </span>
+                                    </div>
+                                )}
+                            {telemetry.gps_fix !== null &&
+                                telemetry.gps_fix !== undefined && (
+                                    <div>
+                                        <span className="text-slate-500">
+                                            GPS Fix:
+                                        </span>
+                                        <span className="ml-2 text-slate-200 font-mono">
+                                            {telemetry.gps_fix}
+                                        </span>
+                                    </div>
+                                )}
+                        </div>
+                    </div>
+                )}
+
                 {/* Manual Arm/Disarm */}
                 <div className="p-4 bg-slate-900 rounded-lg border border-slate-800">
                     <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3">
@@ -276,16 +382,19 @@ export function ControlPanel({ mqtt, arUcoDetection }: ControlPanelProps) {
                     <div className="space-y-3">
                         <div>
                             <label className="text-xs text-slate-400 block mb-2">
-                                Destination
+                                Destination (latitude, longitude)
                             </label>
                             <input
                                 type="text"
                                 value={destination}
                                 onChange={(e) => setDestination(e.target.value)}
-                                placeholder="Enter destination..."
+                                placeholder="34.052235, -118.243683"
                                 disabled={!isConnected || !isArmed}
-                                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-slate-200 text-sm disabled:opacity-50"
+                                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-slate-200 text-sm disabled:opacity-50 font-mono"
                             />
+                            <p className="text-xs text-slate-500 mt-1">
+                                Format: lat, lon (e.g., 34.052235, -118.243683)
+                            </p>
                         </div>
                         <Button
                             onClick={handleMove}
@@ -340,11 +449,14 @@ export function ControlPanel({ mqtt, arUcoDetection }: ControlPanelProps) {
                                 !isConnected ||
                                 (activeLandingMode !== null &&
                                     activeLandingMode !== "auto") ||
-                                (activeLandingMode !== "auto" && !arUcoDetected)
+                                (activeLandingMode !== "auto" &&
+                                    !isCorrectMarkerDetected)
                             }
                             className={`w-full h-12 disabled:opacity-50 ${
                                 activeLandingMode === "auto"
                                     ? "bg-orange-600 hover:bg-orange-700 animate-pulse"
+                                    : isCorrectMarkerDetected
+                                    ? "bg-purple-600 hover:bg-purple-700"
                                     : "bg-purple-600 hover:bg-purple-700"
                             }`}
                         >
@@ -358,9 +470,11 @@ export function ControlPanel({ mqtt, arUcoDetection }: ControlPanelProps) {
                                 <span className="text-xs opacity-80">
                                     {activeLandingMode === "auto"
                                         ? "Click to cancel"
-                                        : arUcoDetected
-                                        ? "Marker detected ✓"
-                                        : "No marker detected"}
+                                        : !markerLocked
+                                        ? "Lock marker first"
+                                        : isCorrectMarkerDetected
+                                        ? `Locked: Marker ${lockedMarkerId} ✓`
+                                        : `Searching for Marker ${lockedMarkerId}`}
                                 </span>
                             </div>
                         </Button>

@@ -13,34 +13,40 @@ import { Badge } from "@/components/ui/badge";
 import { Activity, Wifi } from "lucide-react";
 import { useMQTT } from "@/hooks/use-mqtt";
 
-interface TelemetryData {
-    altitude: number;
-    groundSpeed: number;
-    distanceToWaypoint: number;
-    yaw: number;
-    verticalSpeed: number;
-}
-
 export default function Home() {
-    const [telemetry] = useState<TelemetryData>({
-        altitude: 0,
-        groundSpeed: 0,
-        distanceToWaypoint: 0,
-        yaw: 0,
-        verticalSpeed: 0,
-    });
-
     const [lastUpdate, setLastUpdate] = useState<Date | null>(new Date());
+    const [markerLocked, setMarkerLocked] = useState(false);
+    const [lockedMarkerId, setLockedMarkerId] = useState<number | undefined>();
 
-    // Use MQTT hook for drone communication
     const mqtt = useMQTT();
 
-    // Update last update time when messages are received
     React.useEffect(() => {
         if (mqtt.messageCount > 0) {
             setLastUpdate(new Date());
         }
     }, [mqtt.messageCount]);
+
+    const handleMarkerLockChange = (locked: boolean, markerId?: number) => {
+        setMarkerLocked(locked);
+        setLockedMarkerId(markerId);
+    };
+
+    const telemetry = {
+        altitude: mqtt.telemetry?.altitude ?? 0,
+        ground_speed: mqtt.telemetry?.ground_speed ?? 0,
+        vertical_speed: mqtt.telemetry?.vertical_speed ?? 0,
+        heading: mqtt.telemetry?.heading ?? 0,
+        armed: mqtt.telemetry?.armed ?? false,
+        mode: mqtt.telemetry?.mode ?? "UNKNOWN",
+        battery: mqtt.telemetry?.battery ?? null,
+        gps_fix: mqtt.telemetry?.gps_fix ?? null,
+        landing_mode: mqtt.telemetry?.landing_mode ?? false,
+        centering_mode: mqtt.telemetry?.centering_mode ?? false,
+        airspeed: mqtt.telemetry?.airspeed ?? 0,
+        latitude: mqtt.telemetry?.latitude,
+        longitude: mqtt.telemetry?.longitude,
+        timestamp: mqtt.telemetry?.timestamp ?? 0,
+    };
 
     const handleManualControl = (direction: string, active: boolean) => {
         console.log(
@@ -110,6 +116,7 @@ export default function Home() {
                         <ArUcoDetectionDisplay
                             detection={mqtt.arUcoDetection}
                             isConnected={mqtt.isConnected}
+                            onLockChange={handleMarkerLockChange}
                         />
                     </div>
 
@@ -131,7 +138,7 @@ export default function Home() {
                                 dangerOnHigh={true}
                             />
                             <CircularGauge
-                                value={telemetry.groundSpeed}
+                                value={telemetry.ground_speed}
                                 min={0}
                                 max={25}
                                 label="Ground Speed"
@@ -141,11 +148,14 @@ export default function Home() {
                                 dangerOnHigh={true}
                             />
                             <CircularGauge
-                                value={telemetry.distanceToWaypoint}
+                                value={telemetry.airspeed}
                                 min={0}
-                                max={500}
-                                label="Dist to WP"
-                                unit="meters"
+                                max={25}
+                                label="Airspeed"
+                                unit="m/s"
+                                warningThreshold={20}
+                                dangerThreshold={23}
+                                dangerOnHigh={true}
                             />
                         </div>
                     </div>
@@ -158,12 +168,12 @@ export default function Home() {
                         </h2>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <HeadingGauge
-                                yaw={telemetry.yaw}
+                                yaw={telemetry.heading}
                                 label="Yaw / Heading"
                             />
                             <div className="h-[290px]">
                                 <LinearGauge
-                                    value={telemetry.verticalSpeed}
+                                    value={telemetry.vertical_speed}
                                     min={-5}
                                     max={5}
                                     label="Vertical Speed"
@@ -172,6 +182,38 @@ export default function Home() {
                             </div>
                         </div>
                     </div>
+
+                    {mqtt.telemetry &&
+                        telemetry.latitude !== undefined &&
+                        telemetry.longitude !== undefined && (
+                            <div>
+                                <h2 className="text-lg font-semibold text-slate-300 uppercase tracking-wide mb-4 flex items-center">
+                                    <div className="w-1 h-5 bg-emerald-500 mr-3 rounded" />
+                                    GPS Position
+                                </h2>
+                                <div className="p-4 bg-slate-900 rounded-lg border border-slate-800">
+                                    <div className="grid grid-cols-2 gap-4 text-sm">
+                                        <div>
+                                            <span className="text-slate-500">
+                                                Latitude:
+                                            </span>
+                                            <div className="mt-1 text-slate-200 font-mono text-lg">
+                                                {telemetry.latitude.toFixed(6)}°
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <span className="text-slate-500">
+                                                Longitude:
+                                            </span>
+                                            <div className="mt-1 text-slate-200 font-mono text-lg">
+                                                {telemetry.longitude.toFixed(6)}
+                                                °
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                 </div>
 
                 {/* Right Column - Controls */}
@@ -194,6 +236,8 @@ export default function Home() {
                         <ControlPanel
                             mqtt={mqtt}
                             arUcoDetection={mqtt.arUcoDetection}
+                            markerLocked={markerLocked}
+                            lockedMarkerId={lockedMarkerId}
                         />
                     </div>
 

@@ -1,21 +1,60 @@
 "use client";
 
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Scan, ScanSearch, AlertCircle } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Scan, ScanSearch, AlertCircle, Lock, Unlock } from "lucide-react";
 import type { ArUcoDetection } from "@/hooks/use-mqtt";
 
 interface ArUcoDetectionProps {
     detection: ArUcoDetection | null;
     isConnected: boolean;
+    onLockChange?: (locked: boolean, markerId?: number) => void;
 }
 
 export function ArUcoDetectionDisplay({
     detection,
     isConnected,
+    onLockChange,
 }: ArUcoDetectionProps) {
     const isDetected = detection?.detected ?? false;
+    const [isLocked, setIsLocked] = useState(false);
+    const [lockedMarkerId, setLockedMarkerId] = useState<number | null>(null);
+    const [showLockPrompt, setShowLockPrompt] = useState(false);
+
+    useEffect(() => {
+        if (
+            isDetected &&
+            !isLocked &&
+            !showLockPrompt &&
+            detection?.marker_id !== undefined
+        ) {
+            setShowLockPrompt(true);
+        }
+
+        if (!isDetected && isLocked) {
+            setShowLockPrompt(false);
+        }
+    }, [isDetected, isLocked, showLockPrompt, detection?.marker_id]);
+
+    const handleLockIn = () => {
+        if (detection?.marker_id !== undefined) {
+            setIsLocked(true);
+            setLockedMarkerId(detection.marker_id);
+            setShowLockPrompt(false);
+            onLockChange?.(true, detection.marker_id);
+        }
+    };
+
+    const handleUnlock = () => {
+        setIsLocked(false);
+        setLockedMarkerId(null);
+        setShowLockPrompt(false);
+        onLockChange?.(false);
+    };
+
+    const isCorrectMarker = isLocked && detection?.marker_id === lockedMarkerId;
 
     return (
         <Card className="p-6 bg-slate-950 border-slate-800">
@@ -29,22 +68,43 @@ export function ArUcoDetectionDisplay({
                             Computer Vision Marker Tracking
                         </p>
                     </div>
-                    <Badge
-                        variant={isDetected ? "default" : "secondary"}
-                        className="uppercase"
-                    >
-                        {isDetected ? (
-                            <>
-                                <Scan className="mr-2 h-3 w-3" />
-                                Detected
-                            </>
-                        ) : (
-                            <>
-                                <ScanSearch className="mr-2 h-3 w-3" />
-                                Scanning
-                            </>
+                    <div className="flex gap-2">
+                        {isLocked && (
+                            <Badge
+                                variant="default"
+                                className="uppercase bg-amber-600"
+                            >
+                                <Lock className="mr-2 h-3 w-3" />
+                                Locked
+                            </Badge>
                         )}
-                    </Badge>
+                        <Badge
+                            variant={
+                                isLocked && isCorrectMarker
+                                    ? "default"
+                                    : isDetected
+                                    ? "default"
+                                    : "secondary"
+                            }
+                            className={
+                                isLocked && isCorrectMarker
+                                    ? "uppercase bg-emerald-600"
+                                    : "uppercase"
+                            }
+                        >
+                            {isDetected ? (
+                                <>
+                                    <Scan className="mr-2 h-3 w-3" />
+                                    Detected
+                                </>
+                            ) : (
+                                <>
+                                    <ScanSearch className="mr-2 h-3 w-3" />
+                                    Scanning
+                                </>
+                            )}
+                        </Badge>
+                    </div>
                 </div>
 
                 {!isConnected ? (
@@ -78,17 +138,90 @@ export function ArUcoDetectionDisplay({
                     </div>
                 ) : isDetected ? (
                     <div className="space-y-3">
-                        <div className="p-4 bg-emerald-950 border border-emerald-800 rounded-lg">
-                            <div className="flex items-center gap-3 text-emerald-200">
+                        {showLockPrompt && !isLocked && (
+                            <div className="p-4 bg-amber-950 border border-amber-800 rounded-lg">
+                                <div className="space-y-3">
+                                    <div className="flex items-start gap-3 text-amber-200">
+                                        <Lock className="h-6 w-6 mt-0.5" />
+                                        <div className="flex-1">
+                                            <p className="text-sm font-semibold">
+                                                Lock onto this marker?
+                                            </p>
+                                            <p className="text-xs mt-1 opacity-80">
+                                                Locking will enable autonomous
+                                                landing on Marker ID{" "}
+                                                {detection?.marker_id}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <Button
+                                            onClick={handleLockIn}
+                                            className="flex-1 bg-emerald-600 hover:bg-emerald-700"
+                                        >
+                                            <Lock className="mr-2 h-4 w-4" />
+                                            Lock Target
+                                        </Button>
+                                        <Button
+                                            onClick={() =>
+                                                setShowLockPrompt(false)
+                                            }
+                                            variant="outline"
+                                            className="flex-1 border-amber-800 text-amber-200 hover:bg-amber-900"
+                                        >
+                                            Dismiss
+                                        </Button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        <div
+                            className={`p-4 rounded-lg ${
+                                isLocked && isCorrectMarker
+                                    ? "bg-emerald-950 border border-emerald-800"
+                                    : isLocked && !isCorrectMarker
+                                    ? "bg-red-950 border border-red-800"
+                                    : "bg-emerald-950 border border-emerald-800"
+                            }`}
+                        >
+                            <div
+                                className={`flex items-center gap-3 ${
+                                    isLocked && isCorrectMarker
+                                        ? "text-emerald-200"
+                                        : isLocked && !isCorrectMarker
+                                        ? "text-red-200"
+                                        : "text-emerald-200"
+                                }`}
+                            >
                                 <Scan className="h-8 w-8" />
-                                <div>
+                                <div className="flex-1">
                                     <p className="text-sm font-semibold">
-                                        Marker Detected
+                                        {isLocked && isCorrectMarker
+                                            ? "Locked Target Detected"
+                                            : isLocked && !isCorrectMarker
+                                            ? "Wrong Marker Detected"
+                                            : "Marker Detected"}
                                     </p>
                                     <p className="text-xs mt-1 opacity-80">
-                                        Auto-land available
+                                        {isLocked && isCorrectMarker
+                                            ? "Ready for auto-land"
+                                            : isLocked && !isCorrectMarker
+                                            ? `Looking for Marker ${lockedMarkerId}`
+                                            : "Auto-land available after lock"}
                                     </p>
                                 </div>
+                                {isLocked && (
+                                    <Button
+                                        onClick={handleUnlock}
+                                        variant="outline"
+                                        size="sm"
+                                        className="border-slate-700"
+                                    >
+                                        <Unlock className="mr-2 h-3 w-3" />
+                                        Unlock
+                                    </Button>
+                                )}
                             </div>
                         </div>
 

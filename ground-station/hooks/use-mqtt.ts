@@ -48,6 +48,12 @@ export interface Telemetry {
     gps_fix: number | null;
     landing_mode: boolean;
     centering_mode: boolean;
+    ground_speed: number;
+    airspeed: number;
+    vertical_speed: number;
+    heading: number;
+    latitude: number;
+    longitude: number;
     timestamp: number;
 }
 
