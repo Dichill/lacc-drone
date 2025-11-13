@@ -78,11 +78,11 @@ last_manual_control_time: float = 0.0
 manual_control_rate_limit: float = 0.05
 
 last_stream_time: float = 0.0
-stream_rate_limit: float = 0.05
+stream_rate_limit: float = 0.033
 last_aruco_time: float = 0.0
 aruco_rate_limit: float = 0.1
 last_aruco_publish_time: float = 0.0
-aruco_publish_rate_limit: float = 0.2
+aruco_publish_rate_limit: float = 0.1
 last_detection_data: Dict[str, Any] = {"detected": False, "markers": [], "timestamp": time.time()}
 
 current_mode: str = "UNKNOWN"
@@ -607,6 +607,14 @@ def on_connect(client, userdata, flags, rc: int) -> None:
     logger.info(f"Subscribed to topic: {command_topic}", topic=command_topic)
 
 
+def on_disconnect(client, userdata, rc: int) -> None:
+    logger = get_logger()
+    if rc != 0:
+        logger.warning(f"Unexpected MQTT disconnect (code: {rc})", result_code=rc)
+    else:
+        logger.info("MQTT client disconnected")
+
+
 def on_message(client, userdata, msg) -> None:
     logger = get_logger()
     payload: str = msg.payload.decode()
@@ -635,6 +643,9 @@ def start_video_stream(client) -> None:
     horizontal_fov: float = 62.2 * (np.pi / 180)
     vertical_fov: float = 48.8 * (np.pi / 180)
 
+    cv2.namedWindow("Drone Camera Feed", cv2.WINDOW_NORMAL)
+    cv2.resizeWindow("Drone Camera Feed", 640, 480)
+
     with Picamera2() as camera:
         camera.configure(camera.create_video_configuration(main={"size": (horizontal_res, vertical_res)}))
         encoder: JpegEncoder = JpegEncoder()
@@ -649,27 +660,19 @@ def start_video_stream(client) -> None:
         logger.info("Camera encoder started")
 
         frame_count: int = 0
-        skip_count: int = 0
         
         while True:
             with output3.condition:
-                if not output3.condition.wait(timeout=1.0):
-                    continue
+                output3.condition.wait()
                 frame = output3.frame
 
                 if frame:
+                    frame_count += 1
                     current_time: float = time.time()
                     
                     should_process_aruco: bool = (current_time - last_aruco_time) >= aruco_rate_limit
                     force_process: bool = landing_mode or centering_mode
-                    was_detected: bool = last_detection_data.get("detected", False)
-                    adaptive_stream_rate: float = stream_rate_limit * 1.5 if was_detected else stream_rate_limit
-                    should_stream: bool = (current_time - last_stream_time) >= adaptive_stream_rate
-                    
-                    if not (should_stream or should_process_aruco or force_process):
-                        skip_count += 1
-                        continue
-                    frame_count += 1
+                    should_stream: bool = (current_time - last_stream_time) >= stream_rate_limit
                     
                     img_array: np.ndarray = np.frombuffer(frame, dtype=np.uint8)
                     img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
@@ -765,26 +768,39 @@ def start_video_stream(client) -> None:
                     
                     should_publish_aruco: bool = (current_time - last_aruco_publish_time) >= aruco_publish_rate_limit
                     
-                    if should_publish_aruco or (detection_data is not None):
-                        detection_json: str = json.dumps(last_detection_data)
-                        client.publish(aruco_topic, detection_json, qos=0)
-                        last_aruco_publish_time = current_time
+                    try:
+                        if client and client.is_connected():
+                            if should_publish_aruco or (detection_data is not None):
+                                detection_json: str = json.dumps(last_detection_data)
+                                client.publish(aruco_topic, detection_json, qos=0)
+                                last_aruco_publish_time = current_time
+                            
+                            if should_stream:
+                                encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 40]
+                                ret, jpeg = cv2.imencode(".jpg", img, encode_param)
+                                if ret:
+                                    jpg_as_text: str = base64.b64encode(jpeg).decode("utf-8")
+                                    client.publish(stream_topic, jpg_as_text, qos=0)
+                                last_stream_time = current_time
+                    except Exception as e:
+                        logger.error(f"MQTT publish error: {e}", error=str(e))
                     
-                    if should_stream:
-                        encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 30]
-                        ret, jpeg = cv2.imencode(".jpg", img, encode_param)
-                        if ret:
-                            jpg_as_text: str = base64.b64encode(jpeg).decode("utf-8")
-                            client.publish(stream_topic, jpg_as_text, qos=0)
-                        last_stream_time = current_time
+                    with telemetry_lock:
+                        mode = current_mode
+                        armed = current_armed
+                    
+                    status_text = f"Mode: {mode} | Armed: {armed} | Frames: {frame_count}"
+                    cv2.putText(img, status_text, (10, img.shape[0] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+                    
+                    cv2.imshow("Drone Camera Feed", img)
 
                     if cv2.waitKey(1) & 0xFF == ord("q"):
-                        logger.event("VIDEO_STREAM_STOP", frames_processed=frame_count, frames_skipped=skip_count)
-                        logger.info(f"Video stream stopped - {frame_count} frames processed, {skip_count} frames skipped", 
-                                  frame_count=frame_count, skip_count=skip_count)
+                        logger.event("VIDEO_STREAM_STOP", frames_processed=frame_count)
+                        logger.info(f"Video stream stopped - {frame_count} frames processed", frame_count=frame_count)
                         break
 
         output1.stop()
+        cv2.destroyAllWindows()
         logger.info("Video recording stopped")
 
 
@@ -805,7 +821,9 @@ def main() -> None:
 
     mqtt_client = mqtt.Client()
     mqtt_client.on_connect = on_connect
+    mqtt_client.on_disconnect = on_disconnect
     mqtt_client.on_message = on_message
+    mqtt_client.reconnect_delay_set(min_delay=1, max_delay=10)
 
     try:
         logger.info(f"Connecting to MQTT broker at {broker_address}:{broker_port}...", broker=broker_address, port=broker_port)
@@ -844,6 +862,7 @@ def main() -> None:
     except Exception as e:
         logger.error(f"Video stream error: {e}", error=str(e), error_type=type(e).__name__)
     finally:
+        cv2.destroyAllWindows()
         mqtt_client.loop_stop()
         mqtt_client.disconnect()
         logger.event("SYSTEM_SHUTDOWN")
@@ -857,6 +876,7 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         logger = get_logger()
         logger.info("\n\nShutting down...")
+        cv2.destroyAllWindows()
         close_logger()
     finally:
         print("Disconnected")
