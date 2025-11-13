@@ -646,24 +646,34 @@ def start_video_stream(client) -> None:
     horizontal_fov: float = 62.2 * (np.pi / 180)
     vertical_fov: float = 48.8 * (np.pi / 180)
 
+    picamera2.Picamera2.set_logging(picamera2.Picamera2.ERROR)
+    
     with Picamera2() as camera:
-        config = camera.create_video_configuration(
-            main={"size": (horizontal_res, vertical_res), "format": "XRGB8888"},
-            lores=None,
-            raw=None,
-            controls={
-                "AfMode": 0,
-                "AfTrigger": 0,
-                "LensPosition": 0.0,
-                "FrameDurationLimits": (33333, 33333)
-            }
-        )
-        camera.configure(config)
-        logger.info("Camera configured")
-        
-        time.sleep(0.5)
-        camera.set_controls({"AfMode": 0, "LensPosition": 0.0})
-        logger.info("Camera controls set")
+        try:
+            logger.info("Creating camera configuration...")
+            config = camera.create_video_configuration(
+                main={"size": (horizontal_res, vertical_res)},
+                encode="main",
+                controls={
+                    "AfMode": 0,
+                    "LensPosition": 0.0,
+                    "FrameDurationLimits": (33333, 33333)
+                }
+            )
+            
+            logger.info("Configuring camera...")
+            camera.configure(config)
+            logger.info("Camera configured successfully")
+            
+            time.sleep(0.5)
+            
+            logger.info("Setting camera controls...")
+            camera.set_controls({"AfMode": 0, "LensPosition": 0.0})
+            logger.info("Camera controls set successfully")
+            
+        except Exception as e:
+            logger.error(f"Camera configuration failed: {e}", error=str(e))
+            raise
         
         encoder: JpegEncoder = JpegEncoder()
         output1: FfmpegOutput = FfmpegOutput(video_file, audio=False)
@@ -671,21 +681,37 @@ def start_video_stream(client) -> None:
         output2: FileOutput = FileOutput(output3)
         encoder.output = [output1, output2]
 
-        camera.start_encoder(encoder)
-        camera.start()
-        output1.start()
-        
-        time.sleep(0.5)
-        logger.info("Camera encoder started and running")
+        try:
+            logger.info("Starting camera encoder...")
+            camera.start_encoder(encoder)
+            logger.info("Starting camera...")
+            camera.start()
+            logger.info("Starting video output...")
+            output1.start()
+            
+            time.sleep(1.0)
+            logger.info("✓ Camera encoder started and running successfully")
+            logger.info("✓ Waiting for video frames...")
+            
+        except Exception as e:
+            logger.error(f"Camera start failed: {e}", error=str(e))
+            raise
 
         frame_count: int = 0
+        first_frame_received: bool = False
         
         while True:
             with output3.condition:
-                output3.condition.wait()
+                if not output3.condition.wait(timeout=5.0):
+                    logger.warning("No frame received in 5 seconds")
+                    continue
                 frame = output3.frame
 
                 if frame:
+                    if not first_frame_received:
+                        logger.info("✓ First frame received! Camera is working!")
+                        first_frame_received = True
+                    
                     frame_count += 1
                     current_time: float = time.time()
                     
