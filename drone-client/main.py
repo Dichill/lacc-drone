@@ -1,3 +1,6 @@
+import os
+os.environ["LIBCAMERA_LOG_LEVELS"] = "ERROR"
+
 import picamera2
 from picamera2 import Picamera2
 from picamera2.encoders import JpegEncoder
@@ -645,13 +648,23 @@ def start_video_stream(client) -> None:
 
     with Picamera2() as camera:
         config = camera.create_video_configuration(
-            main={"size": (horizontal_res, vertical_res)},
+            main={"size": (horizontal_res, vertical_res), "format": "XRGB8888"},
+            lores=None,
+            raw=None,
             controls={
                 "AfMode": 0,
-                "LensPosition": 0.0
+                "AfTrigger": 0,
+                "LensPosition": 0.0,
+                "FrameDurationLimits": (33333, 33333)
             }
         )
         camera.configure(config)
+        logger.info("Camera configured")
+        
+        time.sleep(0.5)
+        camera.set_controls({"AfMode": 0, "LensPosition": 0.0})
+        logger.info("Camera controls set")
+        
         encoder: JpegEncoder = JpegEncoder()
         output1: FfmpegOutput = FfmpegOutput(video_file, audio=False)
         output3: StreamingOutput = StreamingOutput()
@@ -661,7 +674,9 @@ def start_video_stream(client) -> None:
         camera.start_encoder(encoder)
         camera.start()
         output1.start()
-        logger.info("Camera encoder started")
+        
+        time.sleep(0.5)
+        logger.info("Camera encoder started and running")
 
         frame_count: int = 0
         
