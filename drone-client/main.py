@@ -1,21 +1,7 @@
-import os
-os.environ["LIBCAMERA_LOG_LEVELS"] = "ERROR"
-
-import picamera2
-from picamera2 import Picamera2
-from picamera2.encoders import JpegEncoder
-from picamera2.outputs import FileOutput, FfmpegOutput
-from threading import Condition, Thread, Lock
-import io
-
-import base64
-import datetime
-import numpy as np
+from threading import Thread, Lock
 import paho.mqtt.client as mqtt
-import cv2
 import json
 import time
-import os
 from typing import Optional, Dict, Any
 
 from pymavlink import mavutil
@@ -43,30 +29,9 @@ master.mav.param_set_send(
 broker_address = "localhost"
 broker_port = 1883
 command_topic = "drone/commands"
-stream_topic = "camera/stream"
-aruco_topic = "drone/aruco_detection"
 response_topic = "drone/responses"
 telemetry_topic = "drone/telemetry"
-
-aruco_dict = cv2.aruco.Dictionary_get(cv2.aruco.DICT_4X4_50)
-aruco_params = cv2.aruco.DetectorParameters_create()
-
-camera_matrix: Optional[np.ndarray] = None
-dist_coeffs: Optional[np.ndarray] = None
-calibration_loaded: bool = False
-
-calibration_file: str = "camera_calibration.npz"
-try:
-    if os.path.exists(calibration_file):
-        calib_data = np.load(calibration_file)
-        camera_matrix = calib_data["camera_matrix"]
-        dist_coeffs = calib_data["dist_coeffs"]
-        calibration_loaded = True
-        print(f"✓ Camera calibration loaded from {calibration_file}")
-    else:
-        print(f"⚠ No camera calibration found. Run 'python calibrate_camera.py' for better accuracy")
-except Exception as e:
-    print(f"⚠ Could not load calibration: {e}")
+landing_target_topic = "drone/landing_target"
 
 mqtt_client: Optional[mqtt.Client] = None
 centering_mode: bool = False
@@ -80,14 +45,6 @@ command_rate_limit: float = 0.2
 last_manual_control_time: float = 0.0
 manual_control_rate_limit: float = 0.05
 
-last_stream_time: float = 0.0
-stream_rate_limit: float = 0.033
-last_aruco_time: float = 0.0
-aruco_rate_limit: float = 0.1
-last_aruco_publish_time: float = 0.0
-aruco_publish_rate_limit: float = 0.1
-last_detection_data: Dict[str, Any] = {"detected": False, "markers": [], "timestamp": time.time()}
-
 current_mode: str = "UNKNOWN"
 current_armed: bool = False
 current_altitude: float = 0.0
@@ -98,6 +55,9 @@ current_groundspeed: float = 0.0
 current_airspeed: float = 0.0
 current_vz: float = 0.0
 telemetry_lock: Lock = Lock()
+
+latest_landing_target: Optional[Dict[str, Any]] = None
+landing_target_lock: Lock = Lock()
 
 
 def get_mode_string(mode_num: int) -> str:
@@ -314,15 +274,67 @@ def telemetry_publisher() -> None:
         time.sleep(1)
 
 
-class StreamingOutput(io.BufferedIOBase):
-    def __init__(self):
-        self.frame = None
-        self.condition = Condition()
-
-    def write(self, buf):
-        with self.condition:
-            self.frame = buf
-            self.condition.notify_all()
+def landing_target_processor() -> None:
+    global landing_mode, centering_mode, last_command_time, latest_landing_target
+    logger = get_logger()
+    logger.info("Landing target processor started")
+    
+    while True:
+        try:
+            if landing_mode or centering_mode:
+                with landing_target_lock:
+                    target_data = latest_landing_target
+                
+                if target_data:
+                    current_time = time.time()
+                    x_ang = target_data.get("x_angle", 0.0)
+                    y_ang = target_data.get("y_angle", 0.0)
+                    
+                    if landing_mode:
+                        with telemetry_lock:
+                            mode = current_mode
+                        if mode != "LAND":
+                            master.set_mode("LAND")
+                            logger.info("Switching to LAND mode...")
+                            logger.event("FLIGHT_MODE_CHANGED", mode="LAND")
+                        
+                        smoothed_x, smoothed_y = smooth_angular_position(x_ang, y_ang, alpha=0.2)
+                        
+                        if current_time - last_command_time >= command_rate_limit:
+                            send_land_message(smoothed_x, smoothed_y)
+                            last_command_time = current_time
+                    
+                    elif centering_mode:
+                        horizontal_res = 640
+                        vertical_res = 480
+                        
+                        center_x = target_data.get("center_x", horizontal_res / 2)
+                        center_y = target_data.get("center_y", vertical_res / 2)
+                        
+                        offset_x = (center_x - horizontal_res / 2) / (horizontal_res / 2)
+                        offset_y = (center_y - vertical_res / 2) / (vertical_res / 2)
+                        
+                        smoothed_x, smoothed_y = smooth_angular_position(offset_x, offset_y, alpha=0.4)
+                        
+                        deadzone = 0.1
+                        if abs(smoothed_x) < deadzone:
+                            smoothed_x = 0.0
+                        if abs(smoothed_y) < deadzone:
+                            smoothed_y = 0.0
+                        
+                        velocity_gain = 0.3
+                        vx = smoothed_y * velocity_gain
+                        vy = smoothed_x * velocity_gain
+                        
+                        if current_time - last_command_time >= command_rate_limit:
+                            send_local_ned_velocity(vx, vy, 0)
+                            last_command_time = current_time
+            
+            time.sleep(0.05)
+            
+        except Exception as e:
+            logger.error(f"Landing target processor error: {e}", error=str(e))
+            time.sleep(0.1)
 
 
 def process_command(command: str) -> None:
@@ -424,7 +436,6 @@ def process_command(command: str) -> None:
                 centering_mode = False
                 landing_mode = True
                 
-                # Switch to LAND mode immediately to start descending
                 master.set_mode("LAND")
                 logger.info("Switching to LAND mode - precision landing active")
                 logger.event("FLIGHT_MODE_CHANGED", mode="LAND")
@@ -602,6 +613,8 @@ def on_connect(client, userdata, flags, rc: int) -> None:
     logger.info(f"Connected to MQTT Broker with result code {rc}", result_code=rc)
     client.subscribe(command_topic)
     logger.info(f"Subscribed to topic: {command_topic}", topic=command_topic)
+    client.subscribe(landing_target_topic)
+    logger.info(f"Subscribed to topic: {landing_target_topic}", topic=landing_target_topic)
 
 
 def on_disconnect(client, userdata, rc: int) -> None:
@@ -613,227 +626,24 @@ def on_disconnect(client, userdata, rc: int) -> None:
 
 
 def on_message(client, userdata, msg) -> None:
+    global latest_landing_target
     logger = get_logger()
-    payload: str = msg.payload.decode()
-    logger.info(f"[{msg.topic}] {payload}", topic=msg.topic, payload=payload)
     
-    command_thread: Thread = Thread(target=process_command, args=(payload,))
-    command_thread.daemon = True
-    command_thread.start()
-
-
-def start_video_stream(client) -> None:
-    global centering_mode, landing_mode, last_command_time
-    global last_stream_time, last_aruco_time, last_aruco_publish_time, last_detection_data
-    logger = get_logger()
-
-    now: datetime.datetime = datetime.datetime.now()
-    timestamp_string: str = now.strftime("%Y-%m-%d_%H-%M-%S")
-    video_file: str = f"./records/{timestamp_string}.mp4"
-
-    logger.event("VIDEO_STREAM_START")
-    logger.info(f"Starting video stream - recording to {video_file}", video_file=video_file)
-
-    marker_size: float = 20.0
-    horizontal_res: int = 640
-    vertical_res: int = 480
-    horizontal_fov: float = 62.2 * (np.pi / 180)
-    vertical_fov: float = 48.8 * (np.pi / 180)
-
-    picamera2.Picamera2.set_logging(picamera2.Picamera2.ERROR)
+    if msg.topic == command_topic:
+        payload: str = msg.payload.decode()
+        logger.info(f"[{msg.topic}] {payload}", topic=msg.topic, payload=payload)
+        
+        command_thread: Thread = Thread(target=process_command, args=(payload,))
+        command_thread.daemon = True
+        command_thread.start()
     
-    with Picamera2() as camera:
+    elif msg.topic == landing_target_topic:
         try:
-            logger.info("Creating camera configuration...")
-            config = camera.create_video_configuration(
-                main={"size": (horizontal_res, vertical_res)},
-                encode="main",
-                controls={
-                    "AfMode": 0,
-                    "LensPosition": 0.0,
-                    "FrameDurationLimits": (33333, 33333)
-                }
-            )
-            
-            logger.info("Configuring camera...")
-            camera.configure(config)
-            logger.info("Camera configured successfully")
-            
-            time.sleep(0.5)
-            
-            logger.info("Setting camera controls...")
-            camera.set_controls({"AfMode": 0, "LensPosition": 0.0})
-            logger.info("Camera controls set successfully")
-            
+            target_data = json.loads(msg.payload.decode())
+            with landing_target_lock:
+                latest_landing_target = target_data
         except Exception as e:
-            logger.error(f"Camera configuration failed: {e}", error=str(e))
-            raise
-        
-        encoder: JpegEncoder = JpegEncoder()
-        output1: FfmpegOutput = FfmpegOutput(video_file, audio=False)
-        output3: StreamingOutput = StreamingOutput()
-        output2: FileOutput = FileOutput(output3)
-        encoder.output = [output1, output2]
-
-        try:
-            logger.info("Starting camera encoder...")
-            camera.start_encoder(encoder)
-            logger.info("Starting camera...")
-            camera.start()
-            logger.info("Starting video output...")
-            output1.start()
-            
-            time.sleep(1.0)
-            logger.info("✓ Camera encoder started and running successfully")
-            logger.info("✓ Waiting for video frames...")
-            
-        except Exception as e:
-            logger.error(f"Camera start failed: {e}", error=str(e))
-            raise
-
-        frame_count: int = 0
-        first_frame_received: bool = False
-        
-        while True:
-            with output3.condition:
-                if not output3.condition.wait(timeout=5.0):
-                    logger.warning("No frame received in 5 seconds")
-                    continue
-                frame = output3.frame
-
-                if frame:
-                    if not first_frame_received:
-                        logger.info("✓ First frame received! Camera is working!")
-                        first_frame_received = True
-                    
-                    frame_count += 1
-                    current_time: float = time.time()
-                    
-                    should_process_aruco: bool = (current_time - last_aruco_time) >= aruco_rate_limit
-                    force_process: bool = landing_mode or centering_mode
-                    should_stream: bool = (current_time - last_stream_time) >= stream_rate_limit
-                    
-                    img_array: np.ndarray = np.frombuffer(frame, dtype=np.uint8)
-                    img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
-                    
-                    if calibration_loaded and camera_matrix is not None and dist_coeffs is not None:
-                        img = cv2.undistort(img, camera_matrix, dist_coeffs)
-                    
-                    if should_process_aruco or force_process:
-                        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-                        corners, ids, rejected = cv2.aruco.detectMarkers(gray, aruco_dict, parameters=aruco_params)
-                        last_aruco_time = current_time
-                    else:
-                        ids = None
-                        corners = None
-                    
-                    detection_data: Optional[Dict[str, Any]] = None
-                    
-                    if ids is not None and len(ids) > 0:
-                        marker_id: int = int(ids[0][0])
-                        marker_corners = corners[0][0]
-                        
-                        x_sum: float = sum(marker_corners[:, 0])
-                        y_sum: float = sum(marker_corners[:, 1])
-                        x_avg: float = x_sum / 4
-                        y_avg: float = y_sum / 4
-                        
-                        x_ang: float = (x_avg - horizontal_res * 0.5) * horizontal_fov / horizontal_res
-                        y_ang: float = (y_avg - vertical_res * 0.5) * vertical_fov / vertical_res
-                        
-                        if landing_mode:
-                            # Ensure we're in LAND mode (should already be set by auto_land command)
-                            with telemetry_lock:
-                                mode = current_mode
-                            if mode != "LAND":
-                                master.set_mode("LAND")
-                                logger.info("Switching to LAND mode...")
-                                logger.event("FLIGHT_MODE_CHANGED", mode="LAND")
-                            
-                            # Send landing target position to guide precision landing
-                            smoothed_x, smoothed_y = smooth_angular_position(x_ang, y_ang, alpha=0.2)
-                            
-                            if current_time - last_command_time >= command_rate_limit:
-                                send_land_message(smoothed_x, smoothed_y)
-                                last_command_time = current_time
-                                logger.debug(f"Landing guidance: x_ang={smoothed_x:.3f}, y_ang={smoothed_y:.3f}")
-                        
-                        elif centering_mode:
-                            offset_x: float = (x_avg - horizontal_res / 2) / (horizontal_res / 2)
-                            offset_y: float = (y_avg - vertical_res / 2) / (vertical_res / 2)
-                            
-                            smoothed_x, smoothed_y = smooth_angular_position(offset_x, offset_y, alpha=0.4)
-                            
-                            deadzone: float = 0.1
-                            if abs(smoothed_x) < deadzone:
-                                smoothed_x = 0.0
-                            if abs(smoothed_y) < deadzone:
-                                smoothed_y = 0.0
-                            
-                            velocity_gain: float = 0.3
-                            vx: float = smoothed_y * velocity_gain
-                            vy: float = smoothed_x * velocity_gain
-                            
-                            if current_time - last_command_time >= command_rate_limit:
-                                send_local_ned_velocity(vx, vy, 0)
-                                last_command_time = current_time
-                        
-                        cv2.aruco.drawDetectedMarkers(img, corners, ids)
-                        
-                        if landing_mode:
-                            cv2.putText(img, "LANDING MODE", (10, 30), 0, 0.6, (0, 0, 255), thickness=2)
-                        elif centering_mode:
-                            cv2.putText(img, "CENTERING MODE", (10, 30), 0, 0.6, (0, 255, 0), thickness=2)
-                        
-                        detection_data = {
-                            "detected": True,
-                            "marker_id": marker_id,
-                            "markers": [
-                                {
-                                    "id": marker_id,
-                                    "center_x": float(x_avg),
-                                    "center_y": float(y_avg),
-                                    "corners": marker_corners.tolist()
-                                }
-                            ],
-                            "timestamp": time.time()
-                        }
-                    else:
-                        detection_data = {
-                            "detected": False,
-                            "markers": [],
-                            "timestamp": time.time()
-                        }
-                    
-                    if detection_data is not None:
-                        last_detection_data = detection_data
-                    
-                    should_publish_aruco: bool = (current_time - last_aruco_publish_time) >= aruco_publish_rate_limit
-                    
-                    try:
-                        if client and client.is_connected():
-                            if should_publish_aruco or (detection_data is not None):
-                                detection_json: str = json.dumps(last_detection_data)
-                                client.publish(aruco_topic, detection_json, qos=0)
-                                last_aruco_publish_time = current_time
-                            
-                            if should_stream:
-                                encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 40]
-                                ret, jpeg = cv2.imencode(".jpg", img, encode_param)
-                                if ret:
-                                    jpg_as_text: str = base64.b64encode(jpeg).decode("utf-8")
-                                    client.publish(stream_topic, jpg_as_text, qos=0)
-                                last_stream_time = current_time
-                    except Exception as e:
-                        logger.error(f"MQTT publish error: {e}", error=str(e))
-
-                    if cv2.waitKey(1) & 0xFF == ord("q"):
-                        logger.event("VIDEO_STREAM_STOP", frames_processed=frame_count)
-                        logger.info(f"Video stream stopped - {frame_count} frames processed", frame_count=frame_count)
-                        break
-
-        output1.stop()
-        logger.info("Video recording stopped")
+            logger.error(f"Failed to parse landing target: {e}", error=str(e))
 
 
 def main() -> None:
@@ -842,7 +652,7 @@ def main() -> None:
     
     logger.event("SYSTEM_START")
     logger.info("=" * 60)
-    logger.info("LACC Drone - Real Hardware Client")
+    logger.info("LACC Drone - Flight Controller Client")
     logger.info("=" * 60)
     logger.info("\nConfiguration:")
     logger.info("  Vehicle: /dev/serial0 @ 57600 baud")
@@ -883,6 +693,11 @@ def main() -> None:
     telemetry_thread.daemon = True
     telemetry_thread.start()
     logger.info("Telemetry publisher started")
+    
+    landing_processor_thread: Thread = Thread(target=landing_target_processor)
+    landing_processor_thread.daemon = True
+    landing_processor_thread.start()
+    logger.info("Landing target processor started")
     logger.info("")
     
     logger.info("Waiting for commands via MQTT...")
@@ -890,9 +705,10 @@ def main() -> None:
     logger.info("")
 
     try:
-        start_video_stream(mqtt_client)
-    except Exception as e:
-        logger.error(f"Video stream error: {e}", error=str(e), error_type=type(e).__name__)
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        logger.info("\n\nShutting down...")
     finally:
         mqtt_client.loop_stop()
         mqtt_client.disconnect()
