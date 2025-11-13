@@ -423,7 +423,7 @@ export function ControlPanel({
                         Landing Controls
                     </h3>
 
-                    {arUcoDetected && !isCorrectMarkerDetected && (
+                    {/* {arUcoDetected && !isCorrectMarkerDetected && (
                         <div className="mb-3 p-3 bg-amber-950 border border-amber-800 rounded-lg">
                             <p className="text-xs text-amber-200 font-medium">
                                 {!markerLocked
@@ -431,7 +431,7 @@ export function ControlPanel({
                                     : `⚠️ Wrong marker detected. Looking for ID ${lockedMarkerId}, but seeing ID ${arUcoDetection?.marker_id}`}
                             </p>
                         </div>
-                    )}
+                    )} */}
 
                     <div className="space-y-3">
                         <Button

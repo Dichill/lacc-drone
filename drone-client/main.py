@@ -62,9 +62,13 @@ smoothed_x_ang: float = 0.0
 smoothed_y_ang: float = 0.0
 last_command_time: float = 0.0
 command_rate_limit: float = 0.2
+last_manual_control_time: float = 0.0
+manual_control_rate_limit: float = 0.05
 
 last_stream_time: float = 0.0
 stream_rate_limit: float = 0.05
+last_aruco_time: float = 0.0
+aruco_rate_limit: float = 0.1
 last_aruco_publish_time: float = 0.0
 aruco_publish_rate_limit: float = 0.2
 last_detection_data: Dict[str, Any] = {"detected": False, "markers": [], "timestamp": time.time()}
@@ -104,22 +108,34 @@ def arm_and_takeoff(target_altitude: float) -> None:
         landing_mode = False
         centering_mode = False
     
+    timeout: int = 30
+    start: float = time.time()
     while not vehicle.is_armable:
+        if time.time() - start > timeout:
+            logger.warning("Vehicle failed to become armable")
+            raise Exception("Vehicle not armable after timeout")
         logger.info("Waiting for vehicle to become armable")
         time.sleep(1)
     logger.info("Vehicle is now armable")
     logger.event("VEHICLE_ARMABLE")
 
     vehicle.mode = VehicleMode("GUIDED")
-
+    start = time.time()
     while vehicle.mode.name != "GUIDED":
+        if time.time() - start > timeout:
+            logger.warning("Failed to enter GUIDED mode")
+            raise Exception("Mode change timeout")
         logger.info("Waiting for drone to enter GUIDED flight mode")
         time.sleep(1)
     logger.info("Vehicle now in GUIDED mode")
     logger.event("FLIGHT_MODE_CHANGED", mode="GUIDED")
 
     vehicle.armed = True
+    start = time.time()
     while not vehicle.armed:
+        if time.time() - start > timeout:
+            logger.warning("Failed to arm vehicle")
+            raise Exception("Arm timeout")
         logger.info("Waiting for vehicle to become armed")
         time.sleep(1)
     logger.info("Props are spinning!")
@@ -275,13 +291,19 @@ def process_command(command: str) -> None:
                     return
                 
                 vehicle.mode = VehicleMode("GUIDED")
-                while vehicle.mode.name != "GUIDED":
+                timeout: int = 10
+                start: float = time.time()
+                while vehicle.mode.name != "GUIDED" and (time.time() - start) < timeout:
                     logger.info("Waiting for GUIDED mode...")
                     time.sleep(0.5)
                 
+                if vehicle.mode.name != "GUIDED":
+                    logger.warning("Failed to enter GUIDED mode")
+                    send_response(False, "Mode change timeout", action)
+                    return
+                
                 vehicle.armed = True
-                timeout: int = 10
-                start: float = time.time()
+                start = time.time()
                 while not vehicle.armed and (time.time() - start) < timeout:
                     logger.info("Waiting for vehicle to arm...")
                     time.sleep(0.5)
@@ -421,18 +443,23 @@ def process_command(command: str) -> None:
                 send_response(False, f"Emergency stop failed: {str(e)}", action)
 
         elif action == "manual_control":
+            global last_manual_control_time
             direction: str = data.get("direction", "")
             active: bool = data.get("active", False)
+            
+            current_time: float = time.time()
+            if current_time - last_manual_control_time < manual_control_rate_limit:
+                return
+            last_manual_control_time = current_time
             
             try:
                 if not vehicle.armed:
                     logger.warning("Manual control rejected - vehicle not armed")
-                    send_response(False, "Vehicle not armed", action)
                     return
                 
                 if vehicle.mode.name != "GUIDED":
                     vehicle.mode = VehicleMode("GUIDED")
-                    time.sleep(0.5)
+                    time.sleep(0.3)
                 
                 velocity_scale: float = 2.0
                 yaw_rate: float = 30.0
@@ -480,7 +507,6 @@ def process_command(command: str) -> None:
                     
             except Exception as e:
                 logger.error(f"Manual control error: {e}", error=str(e))
-                send_response(False, f"Manual control failed: {str(e)}", action)
 
         elif action == "status":
             logger.event("STATUS_REQUEST")
@@ -515,12 +541,15 @@ def on_message(client, userdata, msg) -> None:
     logger = get_logger()
     payload: str = msg.payload.decode()
     logger.info(f"[{msg.topic}] {payload}", topic=msg.topic, payload=payload)
-    process_command(payload)
+    
+    command_thread: Thread = Thread(target=process_command, args=(payload,))
+    command_thread.daemon = True
+    command_thread.start()
 
 
 def start_video_stream(client) -> None:
     global centering_mode, landing_mode, last_command_time
-    global last_stream_time, last_aruco_publish_time, last_detection_data
+    global last_stream_time, last_aruco_time, last_aruco_publish_time, last_detection_data
     logger = get_logger()
 
     now: datetime.datetime = datetime.datetime.now()
@@ -550,13 +579,26 @@ def start_video_stream(client) -> None:
         logger.info("Camera encoder started")
 
         frame_count: int = 0
+        skip_count: int = 0
         
         while True:
             with output3.condition:
-                output3.condition.wait()
+                if not output3.condition.wait(timeout=1.0):
+                    continue
                 frame = output3.frame
 
                 if frame:
+                    current_time: float = time.time()
+                    
+                    should_process_aruco: bool = (current_time - last_aruco_time) >= aruco_rate_limit
+                    force_process: bool = landing_mode or centering_mode
+                    was_detected: bool = last_detection_data.get("detected", False)
+                    adaptive_stream_rate: float = stream_rate_limit * 1.5 if was_detected else stream_rate_limit
+                    should_stream: bool = (current_time - last_stream_time) >= adaptive_stream_rate
+                    
+                    if not (should_stream or should_process_aruco or force_process):
+                        skip_count += 1
+                        continue
                     frame_count += 1
                     
                     img_array: np.ndarray = np.frombuffer(frame, dtype=np.uint8)
@@ -565,10 +607,14 @@ def start_video_stream(client) -> None:
                     if calibration_loaded and camera_matrix is not None and dist_coeffs is not None:
                         img = cv2.undistort(img, camera_matrix, dist_coeffs)
                     
-                    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-                    corners, ids, rejected = cv2.aruco.detectMarkers(gray, aruco_dict, parameters=aruco_params)
+                    if should_process_aruco or force_process:
+                        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+                        corners, ids, rejected = cv2.aruco.detectMarkers(gray, aruco_dict, parameters=aruco_params)
+                        last_aruco_time = current_time
+                    else:
+                        ids = None
+                        corners = None
                     
-                    current_time: float = time.time()
                     detection_data: Optional[Dict[str, Any]] = None
                     
                     if ids is not None and len(ids) > 0:
@@ -645,16 +691,15 @@ def start_video_stream(client) -> None:
                     if detection_data is not None:
                         last_detection_data = detection_data
                     
-                    should_stream: bool = (current_time - last_stream_time) >= stream_rate_limit
                     should_publish_aruco: bool = (current_time - last_aruco_publish_time) >= aruco_publish_rate_limit
                     
-                    if should_publish_aruco:
+                    if should_publish_aruco or (detection_data is not None):
                         detection_json: str = json.dumps(last_detection_data)
                         client.publish(aruco_topic, detection_json, qos=0)
                         last_aruco_publish_time = current_time
                     
                     if should_stream:
-                        encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 35]
+                        encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 30]
                         ret, jpeg = cv2.imencode(".jpg", img, encode_param)
                         if ret:
                             jpg_as_text: str = base64.b64encode(jpeg).decode("utf-8")
@@ -662,8 +707,9 @@ def start_video_stream(client) -> None:
                         last_stream_time = current_time
 
                     if cv2.waitKey(1) & 0xFF == ord("q"):
-                        logger.event("VIDEO_STREAM_STOP", frames_processed=frame_count)
-                        logger.info(f"Video stream stopped - {frame_count} frames processed", frame_count=frame_count)
+                        logger.event("VIDEO_STREAM_STOP", frames_processed=frame_count, frames_skipped=skip_count)
+                        logger.info(f"Video stream stopped - {frame_count} frames processed, {skip_count} frames skipped", 
+                                  frame_count=frame_count, skip_count=skip_count)
                         break
 
         output1.stop()
