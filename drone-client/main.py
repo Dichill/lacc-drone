@@ -644,7 +644,14 @@ def start_video_stream(client) -> None:
     vertical_fov: float = 48.8 * (np.pi / 180)
 
     with Picamera2() as camera:
-        camera.configure(camera.create_video_configuration(main={"size": (horizontal_res, vertical_res)}))
+        config = camera.create_video_configuration(
+            main={"size": (horizontal_res, vertical_res)},
+            controls={
+                "AfMode": 0,
+                "LensPosition": 0.0
+            }
+        )
+        camera.configure(config)
         encoder: JpegEncoder = JpegEncoder()
         output1: FfmpegOutput = FfmpegOutput(video_file, audio=False)
         output3: StreamingOutput = StreamingOutput()
