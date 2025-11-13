@@ -643,11 +643,16 @@ def start_video_stream(client) -> None:
     horizontal_fov: float = 62.2 * (np.pi / 180)
     vertical_fov: float = 48.8 * (np.pi / 180)
 
-    cv2.namedWindow("Drone Camera Feed", cv2.WINDOW_NORMAL)
-    cv2.resizeWindow("Drone Camera Feed", 640, 480)
-
     with Picamera2() as camera:
-        camera.configure(camera.create_video_configuration(main={"size": (horizontal_res, vertical_res)}))
+        config = camera.create_video_configuration(
+            main={"size": (horizontal_res, vertical_res)},
+            controls={
+                "AfMode": 0,
+                "FrameRate": 30.0
+            }
+        )
+        camera.configure(config)
+        
         encoder: JpegEncoder = JpegEncoder()
         output1: FfmpegOutput = FfmpegOutput(video_file, audio=False)
         output3: StreamingOutput = StreamingOutput()
@@ -658,6 +663,13 @@ def start_video_stream(client) -> None:
         camera.start()
         output1.start()
         logger.info("Camera encoder started")
+        
+        try:
+            cv2.namedWindow("Drone Camera Feed", cv2.WINDOW_NORMAL)
+            cv2.resizeWindow("Drone Camera Feed", 640, 480)
+            logger.info("Display window created")
+        except Exception as e:
+            logger.warning(f"Could not create display window (running headless?): {e}")
 
         frame_count: int = 0
         
@@ -792,15 +804,22 @@ def start_video_stream(client) -> None:
                     status_text = f"Mode: {mode} | Armed: {armed} | Frames: {frame_count}"
                     cv2.putText(img, status_text, (10, img.shape[0] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
                     
-                    cv2.imshow("Drone Camera Feed", img)
+                    try:
+                        cv2.imshow("Drone Camera Feed", img)
+                    except Exception as e:
+                        logger.warning(f"Display error (running headless?): {e}")
 
-                    if cv2.waitKey(1) & 0xFF == ord("q"):
+                    key = cv2.waitKey(1) & 0xFF
+                    if key == ord("q"):
                         logger.event("VIDEO_STREAM_STOP", frames_processed=frame_count)
                         logger.info(f"Video stream stopped - {frame_count} frames processed", frame_count=frame_count)
                         break
 
         output1.stop()
-        cv2.destroyAllWindows()
+        try:
+            cv2.destroyAllWindows()
+        except Exception:
+            pass
         logger.info("Video recording stopped")
 
 
@@ -862,7 +881,10 @@ def main() -> None:
     except Exception as e:
         logger.error(f"Video stream error: {e}", error=str(e), error_type=type(e).__name__)
     finally:
-        cv2.destroyAllWindows()
+        try:
+            cv2.destroyAllWindows()
+        except Exception:
+            pass
         mqtt_client.loop_stop()
         mqtt_client.disconnect()
         logger.event("SYSTEM_SHUTDOWN")
@@ -876,7 +898,10 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         logger = get_logger()
         logger.info("\n\nShutting down...")
-        cv2.destroyAllWindows()
+        try:
+            cv2.destroyAllWindows()
+        except Exception:
+            pass
         close_logger()
     finally:
         print("Disconnected")
