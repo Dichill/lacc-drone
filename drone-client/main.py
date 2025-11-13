@@ -193,7 +193,7 @@ def vehicle_state_monitor() -> None:
 
 
 def arm_and_takeoff(target_altitude: float) -> None:
-    global landing_mode, centering_mode, current_armed, current_mode, current_altitude
+    global landing_mode, centering_mode, current_armed, current_mode
     logger = get_logger()
     
     if landing_mode or centering_mode:
@@ -225,25 +225,14 @@ def arm_and_takeoff(target_altitude: float) -> None:
         0, 0, 0, 0, 0, 0, 0, target_altitude
     )
     
-    start_time: float = time.time()
-    timeout: int = 30
-    while True:
-        with telemetry_lock:
-            current_alt: float = current_altitude
-        
-        logger.info(f"Current Altitude: {current_alt:.2f}m", altitude=current_alt)
-        
-        if current_alt >= 0.95 * target_altitude:
-            logger.info("Target altitude reached!")
-            logger.event("TARGET_ALTITUDE_REACHED", target=target_altitude, current=current_alt)
-            break
-        
-        if time.time() - start_time > timeout:
-            logger.warning(f"Altitude check timed out after {timeout} seconds", timeout=timeout)
-            logger.warning(f"Current altitude: {current_alt} (target: {target_altitude})", current=current_alt, target=target_altitude)
-            break
-        
-        time.sleep(1)
+    logger.info(f"Takeoff command sent to {target_altitude} meters", target_altitude=target_altitude)
+    logger.event("TAKEOFF_COMMAND_SENT", altitude=target_altitude)
+    
+    time.sleep(2)
+    logger.info("Setting flight mode to LOITER to hold position...")
+    master.set_mode("LOITER")
+    logger.event("FLIGHT_MODE_CHANGED", mode="LOITER")
+    logger.info("LOITER mode enabled - drone will hold position using GPS")
 
 
 def send_local_ned_velocity(vx: float, vy: float, vz: float) -> None:
@@ -434,7 +423,12 @@ def process_command(command: str) -> None:
             try:
                 centering_mode = False
                 landing_mode = True
-                logger.info("Auto-landing mode enabled")
+                
+                # Switch to LAND mode immediately to start descending
+                master.set_mode("LAND")
+                logger.info("Switching to LAND mode - precision landing active")
+                logger.event("FLIGHT_MODE_CHANGED", mode="LAND")
+                logger.info("Auto-landing mode enabled - will guide to ArUco marker during descent")
                 send_response(True, "Auto-landing enabled", action)
             except Exception as e:
                 logger.error(f"Auto-land error: {e}", error=str(e))
@@ -748,6 +742,7 @@ def start_video_stream(client) -> None:
                         y_ang: float = (y_avg - vertical_res * 0.5) * vertical_fov / vertical_res
                         
                         if landing_mode:
+                            # Ensure we're in LAND mode (should already be set by auto_land command)
                             with telemetry_lock:
                                 mode = current_mode
                             if mode != "LAND":
@@ -755,11 +750,13 @@ def start_video_stream(client) -> None:
                                 logger.info("Switching to LAND mode...")
                                 logger.event("FLIGHT_MODE_CHANGED", mode="LAND")
                             
+                            # Send landing target position to guide precision landing
                             smoothed_x, smoothed_y = smooth_angular_position(x_ang, y_ang, alpha=0.2)
                             
                             if current_time - last_command_time >= command_rate_limit:
                                 send_land_message(smoothed_x, smoothed_y)
                                 last_command_time = current_time
+                                logger.debug(f"Landing guidance: x_ang={smoothed_x:.3f}, y_ang={smoothed_y:.3f}")
                         
                         elif centering_mode:
                             offset_x: float = (x_avg - horizontal_res / 2) / (horizontal_res / 2)
