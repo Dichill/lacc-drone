@@ -15,15 +15,27 @@ import time
 import os
 from typing import Optional, Dict, Any
 
-from dronekit import connect, VehicleMode, LocationGlobalRelative
 from pymavlink import mavutil
 from logger import get_logger, init_logger, close_logger
 
-vehicle = connect("/dev/serial0", baud=57600, wait_ready=True)
-vehicle.parameters["PLND_ENABLED"] = 1
-vehicle.parameters["PLND_TYPE"] = 1
-vehicle.parameters["PLND_EST_TYPE"] = 0
-vehicle.parameters["LAND_SPEED"] = 30
+master = mavutil.mavlink_connection("/dev/serial0", baud=57600)
+
+print("Waiting for heartbeat...")
+master.wait_heartbeat()
+print(f"Heartbeat from system {master.target_system} component {master.target_component}")
+
+master.mav.param_set_send(
+    master.target_system, master.target_component,
+    b'PLND_ENABLED', 1, mavutil.mavlink.MAV_PARAM_TYPE_REAL32)
+master.mav.param_set_send(
+    master.target_system, master.target_component,
+    b'PLND_TYPE', 1, mavutil.mavlink.MAV_PARAM_TYPE_REAL32)
+master.mav.param_set_send(
+    master.target_system, master.target_component,
+    b'PLND_EST_TYPE', 0, mavutil.mavlink.MAV_PARAM_TYPE_REAL32)
+master.mav.param_set_send(
+    master.target_system, master.target_component,
+    b'LAND_SPEED', 30, mavutil.mavlink.MAV_PARAM_TYPE_REAL32)
 
 broker_address = "localhost"
 broker_port = 1883
@@ -73,9 +85,86 @@ last_aruco_publish_time: float = 0.0
 aruco_publish_rate_limit: float = 0.2
 last_detection_data: Dict[str, Any] = {"detected": False, "markers": [], "timestamp": time.time()}
 
+current_mode: str = "UNKNOWN"
+current_armed: bool = False
+current_altitude: float = 0.0
+current_lat: float = 0.0
+current_lon: float = 0.0
+current_heading: int = 0
+current_groundspeed: float = 0.0
+current_airspeed: float = 0.0
+current_vz: float = 0.0
+telemetry_lock: Lock = Lock()
+
+
+def get_mode_string(mode_num: int) -> str:
+    mode_mapping = {
+        0: "STABILIZE",
+        1: "ACRO",
+        2: "ALT_HOLD",
+        3: "AUTO",
+        4: "GUIDED",
+        5: "LOITER",
+        6: "RTL",
+        7: "CIRCLE",
+        9: "LAND",
+        11: "DRIFT",
+        13: "SPORT",
+        14: "FLIP",
+        15: "AUTOTUNE",
+        16: "POSHOLD",
+        17: "BRAKE",
+        18: "THROW",
+        19: "AVOID_ADSB",
+        20: "GUIDED_NOGPS",
+        21: "SMART_RTL",
+        22: "FLOWHOLD",
+        23: "FOLLOW",
+        24: "ZIGZAG",
+        25: "SYSTEMID",
+        26: "AUTOROTATE",
+        27: "AUTO_RTL"
+    }
+    return mode_mapping.get(mode_num, f"UNKNOWN({mode_num})")
+
+
+def telemetry_listener() -> None:
+    global current_mode, current_armed, current_altitude, current_lat, current_lon
+    global current_heading, current_groundspeed, current_airspeed, current_vz
+    logger = get_logger()
+    logger.info("Telemetry listener started")
+    
+    while True:
+        try:
+            msg = master.recv_match(blocking=True, timeout=1.0)
+            if msg is None:
+                continue
+            
+            msg_type = msg.get_type()
+            
+            with telemetry_lock:
+                if msg_type == "HEARTBEAT":
+                    current_mode = get_mode_string(msg.custom_mode)
+                    current_armed = (msg.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED) != 0
+                    
+                elif msg_type == "GLOBAL_POSITION_INT":
+                    current_altitude = msg.relative_alt / 1000.0
+                    current_lat = msg.lat / 1e7
+                    current_lon = msg.lon / 1e7
+                    current_heading = msg.hdg // 100
+                    current_vz = msg.vz / 100.0
+                    
+                elif msg_type == "VFR_HUD":
+                    current_groundspeed = msg.groundspeed
+                    current_airspeed = msg.airspeed
+                    
+        except Exception as e:
+            logger.error(f"Telemetry listener error: {e}", error=str(e))
+            time.sleep(0.1)
+
 
 def vehicle_state_monitor() -> None:
-    global landing_mode, centering_mode
+    global landing_mode, centering_mode, current_armed
     logger = get_logger()
     logger.info("Vehicle state monitor started")
     
@@ -83,7 +172,8 @@ def vehicle_state_monitor() -> None:
     
     while True:
         try:
-            is_armed: bool = vehicle.armed
+            with telemetry_lock:
+                is_armed: bool = current_armed
             
             if was_armed and not is_armed:
                 if landing_mode or centering_mode:
@@ -100,7 +190,7 @@ def vehicle_state_monitor() -> None:
 
 
 def arm_and_takeoff(target_altitude: float) -> None:
-    global landing_mode, centering_mode
+    global landing_mode, centering_mode, current_armed, current_mode, current_altitude
     logger = get_logger()
     
     if landing_mode or centering_mode:
@@ -108,34 +198,36 @@ def arm_and_takeoff(target_altitude: float) -> None:
         landing_mode = False
         centering_mode = False
     
-    while vehicle.is_armable != True:
-        logger.info("Waiting for vehicle to become armable")
-        time.sleep(1)
-    logger.info("Vehicle is now armable")
-    logger.event("VEHICLE_ARMABLE")
-
-    vehicle.mode = VehicleMode("GUIDED")
-
-    while vehicle.mode != "GUIDED":
-        logger.info("Waiting for drone to enter GUIDED flight mode")
-        time.sleep(1)
-    logger.info("Vehicle now in GUIDED mode")
+    with telemetry_lock:
+        if current_armed:
+            logger.info("Vehicle is already armed")
+        else:
+            logger.info("Arming motors...")
+            logger.event("ARMING_MOTORS")
+            master.arducopter_arm()
+            time.sleep(2)
+            logger.event("MOTORS_ARMED")
+    
+    logger.info("Setting flight mode to GUIDED...")
+    master.set_mode("GUIDED")
     logger.event("FLIGHT_MODE_CHANGED", mode="GUIDED")
-
-    vehicle.armed = True
-    while vehicle.armed == False:
-        logger.info("Waiting for vehicle to become armed")
-        time.sleep(1)
-    logger.info("Props are spinning!")
-    logger.event("MOTORS_ARMED")
-
-    vehicle.simple_takeoff(target_altitude)
+    time.sleep(1)
+    
+    logger.info(f"Taking off to {target_altitude} meters...", target_altitude=target_altitude)
     logger.event("TAKEOFF_INITIATED", altitude=target_altitude)
-
+    master.mav.command_long_send(
+        master.target_system,
+        master.target_component,
+        mavutil.mavlink.MAV_CMD_NAV_TAKEOFF,
+        0, 0, 0, 0, 0, 0, 0, target_altitude
+    )
+    
     start_time: float = time.time()
     timeout: int = 30
     while True:
-        current_alt: float = vehicle.location.global_relative_frame.alt
+        with telemetry_lock:
+            current_alt: float = current_altitude
+        
         logger.info(f"Current Altitude: {current_alt:.2f}m", altitude=current_alt)
         
         if current_alt >= 0.95 * target_altitude:
@@ -152,24 +244,26 @@ def arm_and_takeoff(target_altitude: float) -> None:
 
 
 def send_local_ned_velocity(vx: float, vy: float, vz: float) -> None:
-    msg = vehicle.message_factory.set_position_target_local_ned_encode(
-        0, 0, 0,
+    master.mav.set_position_target_local_ned_send(
+        0,
+        master.target_system,
+        master.target_component,
         mavutil.mavlink.MAV_FRAME_BODY_OFFSET_NED,
         0b0000111111000111,
         0, 0, 0,
         vx, vy, vz,
-        0, 0, 0, 0, 0
+        0, 0, 0,
+        0, 0
     )
-    vehicle.send_mavlink(msg)
-    vehicle.flush()
 
 
 def send_land_message(x: float, y: float) -> None:
-    msg = vehicle.message_factory.landing_target_encode(
-        0, 0, mavutil.mavlink.MAV_FRAME_BODY_OFFSET_NED, x, y, 0, 0, 0
+    master.mav.landing_target_send(
+        0,
+        0,
+        mavutil.mavlink.MAV_FRAME_BODY_OFFSET_NED,
+        x, y, 0, 0, 0
     )
-    vehicle.send_mavlink(msg)
-    vehicle.flush()
 
 
 def smooth_angular_position(x_ang: float, y_ang: float, alpha: float = 0.3) -> tuple:
@@ -204,22 +298,23 @@ def telemetry_publisher() -> None:
     while True:
         try:
             if mqtt_client:
-                telemetry: Dict[str, Any] = {
-                    "armed": vehicle.armed,
-                    "mode": vehicle.mode.name,
-                    "altitude": vehicle.location.global_relative_frame.alt,
-                    "battery": vehicle.battery.level if vehicle.battery else None,
-                    "gps_fix": vehicle.gps_0.fix_type if vehicle.gps_0 else None,
-                    "landing_mode": landing_mode,
-                    "centering_mode": centering_mode,
-                    "ground_speed": vehicle.groundspeed if vehicle.groundspeed else 0.0,
-                    "airspeed": vehicle.airspeed if vehicle.airspeed else 0.0,
-                    "vertical_speed": vehicle.velocity[2] if vehicle.velocity and len(vehicle.velocity) > 2 else 0.0,
-                    "heading": vehicle.heading if vehicle.heading else 0,
-                    "latitude": vehicle.location.global_relative_frame.lat,
-                    "longitude": vehicle.location.global_relative_frame.lon,
-                    "timestamp": time.time()
-                }
+                with telemetry_lock:
+                    telemetry: Dict[str, Any] = {
+                        "armed": current_armed,
+                        "mode": current_mode,
+                        "altitude": current_altitude,
+                        "battery": None,
+                        "gps_fix": None,
+                        "landing_mode": landing_mode,
+                        "centering_mode": centering_mode,
+                        "ground_speed": current_groundspeed,
+                        "airspeed": current_airspeed,
+                        "vertical_speed": current_vz,
+                        "heading": current_heading,
+                        "latitude": current_lat,
+                        "longitude": current_lon,
+                        "timestamp": time.time()
+                    }
                 mqtt_client.publish(telemetry_topic, json.dumps(telemetry), qos=0)
         except Exception as e:
             logger.error(f"Telemetry error: {e}", error=str(e))
@@ -273,30 +368,17 @@ def process_command(command: str) -> None:
             logger.event("ARM_COMMAND")
             logger.info("Action: Executing 'arm' command")
             try:
-                if not vehicle.is_armable:
-                    logger.warning("Vehicle not armable")
-                    send_response(False, "Vehicle not armable", action)
-                    return
+                logger.info("Setting flight mode to GUIDED...")
+                master.set_mode("GUIDED")
+                time.sleep(1)
                 
-                vehicle.mode = VehicleMode("GUIDED")
-                while vehicle.mode != "GUIDED":
-                    logger.info("Waiting for GUIDED mode...")
-                    time.sleep(0.5)
+                logger.info("Arming motors...")
+                master.arducopter_arm()
+                time.sleep(2)
                 
-                vehicle.armed = True
-                timeout: int = 10
-                start: float = time.time()
-                while not vehicle.armed and (time.time() - start) < timeout:
-                    logger.info("Waiting for vehicle to arm...")
-                    time.sleep(0.5)
-                
-                if vehicle.armed:
-                    logger.info("Vehicle armed successfully")
-                    logger.event("MOTORS_ARMED")
-                    send_response(True, "Vehicle armed", action)
-                else:
-                    logger.warning("Failed to arm vehicle")
-                    send_response(False, "Arm timeout", action)
+                logger.info("Vehicle armed successfully")
+                logger.event("MOTORS_ARMED")
+                send_response(True, "Vehicle armed", action)
             except Exception as e:
                 logger.error(f"Arm error: {e}", error=str(e))
                 send_response(False, f"Arm failed: {str(e)}", action)
@@ -308,27 +390,23 @@ def process_command(command: str) -> None:
                 centering_mode = False
                 landing_mode = False
                 
-                current_mode: str = vehicle.mode.name
-                if current_mode != "LAND" and vehicle.location.global_relative_frame.alt > 0.5:
+                with telemetry_lock:
+                    mode = current_mode
+                    alt = current_altitude
+                
+                if mode != "LAND" and alt > 0.5:
                     logger.warning("Vehicle not landed. Switching to LAND mode first.")
-                    vehicle.mode = VehicleMode("LAND")
+                    master.set_mode("LAND")
                     send_response(True, "Landing before disarm", action)
                     return
                 
-                vehicle.armed = False
-                timeout: int = 10
-                start: float = time.time()
-                while vehicle.armed and (time.time() - start) < timeout:
-                    logger.info("Waiting for vehicle to disarm...")
-                    time.sleep(0.5)
+                logger.info("Disarming motors...")
+                master.arducopter_disarm()
+                time.sleep(1)
                 
-                if not vehicle.armed:
-                    logger.info("Vehicle disarmed successfully")
-                    logger.event("MOTORS_DISARMED")
-                    send_response(True, "Vehicle disarmed", action)
-                else:
-                    logger.warning("Failed to disarm vehicle")
-                    send_response(False, "Disarm timeout - vehicle may not be landed", action)
+                logger.info("Vehicle disarmed successfully")
+                logger.event("MOTORS_DISARMED")
+                send_response(True, "Vehicle disarmed", action)
             except Exception as e:
                 logger.error(f"Disarm error: {e}", error=str(e))
                 send_response(False, f"Disarm failed: {str(e)}", action)
@@ -339,7 +417,7 @@ def process_command(command: str) -> None:
             try:
                 centering_mode = False
                 landing_mode = False
-                vehicle.mode = VehicleMode("LAND")
+                master.set_mode("LAND")
                 logger.info("Regular landing initiated")
                 logger.event("FLIGHT_MODE_CHANGED", mode="LAND")
                 send_response(True, "Landing initiated", action)
@@ -388,11 +466,19 @@ def process_command(command: str) -> None:
                     lat: float = float(coords[0].strip())
                     lon: float = float(coords[1].strip())
                     
-                    current_alt: float = vehicle.location.global_relative_frame.alt
-                    target_location: LocationGlobalRelative = LocationGlobalRelative(lat, lon, current_alt)
+                    with telemetry_lock:
+                        alt: float = current_altitude
                     
-                    logger.info(f"Moving to: lat={lat}, lon={lon}, alt={current_alt}", lat=lat, lon=lon, alt=current_alt)
-                    vehicle.simple_goto(target_location)
+                    logger.info(f"Moving to: lat={lat}, lon={lon}, alt={alt}", lat=lat, lon=lon, alt=alt)
+                    master.mav.mission_item_send(
+                        master.target_system,
+                        master.target_component,
+                        0,
+                        mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT,
+                        mavutil.mavlink.MAV_CMD_NAV_WAYPOINT,
+                        2, 0, 0, 0, 0, 0,
+                        lat, lon, alt
+                    )
                     send_response(True, f"Navigation to ({lat}, {lon}) initiated", action)
                 else:
                     logger.warning("Invalid coordinate format")
@@ -407,13 +493,12 @@ def process_command(command: str) -> None:
             try:
                 centering_mode = False
                 landing_mode = False
-                vehicle.mode = VehicleMode("LAND")
+                master.set_mode("LAND")
                 
                 def emergency_disarm():
                     time.sleep(5)
-                    if vehicle.armed:
-                        vehicle.armed = False
-                        logger.warning("Emergency stop complete - vehicle disarmed")
+                    master.arducopter_disarm()
+                    logger.warning("Emergency stop complete - vehicle disarmed")
                 
                 emergency_thread: Thread = Thread(target=emergency_disarm)
                 emergency_thread.daemon = True
@@ -435,12 +520,16 @@ def process_command(command: str) -> None:
             last_manual_control_time = current_time
             
             try:
-                if not vehicle.armed:
+                with telemetry_lock:
+                    armed = current_armed
+                    mode = current_mode
+                
+                if not armed:
                     logger.warning("Manual control rejected - vehicle not armed")
                     return
                 
-                if vehicle.mode.name != "GUIDED":
-                    vehicle.mode = VehicleMode("GUIDED")
+                if mode != "GUIDED":
+                    master.set_mode("GUIDED")
                     time.sleep(0.3)
                 
                 velocity_scale: float = 2.0
@@ -466,22 +555,20 @@ def process_command(command: str) -> None:
                         send_local_ned_velocity(0, 0, velocity_scale)
                         logger.info("Manual control: Down", direction=direction)
                     elif direction == "yaw-left":
-                        msg = vehicle.message_factory.command_long_encode(
-                            0, 0,
+                        master.mav.command_long_send(
+                            master.target_system,
+                            master.target_component,
                             mavutil.mavlink.MAV_CMD_CONDITION_YAW,
-                            0,
-                            0, -yaw_rate, 0, 1, 0, 0, 0
+                            0, 0, -yaw_rate, 0, 1, 0, 0, 0
                         )
-                        vehicle.send_mavlink(msg)
                         logger.info("Manual control: Yaw Left", direction=direction)
                     elif direction == "yaw-right":
-                        msg = vehicle.message_factory.command_long_encode(
-                            0, 0,
+                        master.mav.command_long_send(
+                            master.target_system,
+                            master.target_component,
                             mavutil.mavlink.MAV_CMD_CONDITION_YAW,
-                            0,
-                            0, yaw_rate, 0, 1, 0, 0, 0
+                            0, 0, yaw_rate, 0, 1, 0, 0, 0
                         )
-                        vehicle.send_mavlink(msg)
                         logger.info("Manual control: Yaw Right", direction=direction)
                 else:
                     send_local_ned_velocity(0, 0, 0)
@@ -495,9 +582,10 @@ def process_command(command: str) -> None:
             logger.info("\n" + "=" * 50)
             logger.info("DRONE STATUS")
             logger.info("=" * 50)
-            logger.info(f"  Armed: {vehicle.armed}", armed=vehicle.armed)
-            logger.info(f"  Mode: {vehicle.mode.name}", mode=vehicle.mode.name)
-            logger.info(f"  Altitude: {vehicle.location.global_relative_frame.alt:.2f}m", altitude=vehicle.location.global_relative_frame.alt)
+            with telemetry_lock:
+                logger.info(f"  Armed: {current_armed}", armed=current_armed)
+                logger.info(f"  Mode: {current_mode}", mode=current_mode)
+                logger.info(f"  Altitude: {current_altitude:.2f}m", altitude=current_altitude)
             logger.info(f"  Landing Mode: {'ACTIVE' if landing_mode else 'INACTIVE'}", landing_mode=landing_mode)
             logger.info(f"  Centering Mode: {'ACTIVE' if centering_mode else 'INACTIVE'}", centering_mode=centering_mode)
             logger.info("=" * 50 + "\n")
@@ -612,8 +700,10 @@ def start_video_stream(client) -> None:
                         y_ang: float = (y_avg - vertical_res * 0.5) * vertical_fov / vertical_res
                         
                         if landing_mode:
-                            if vehicle.mode.name != "LAND":
-                                vehicle.mode = VehicleMode("LAND")
+                            with telemetry_lock:
+                                mode = current_mode
+                            if mode != "LAND":
+                                master.set_mode("LAND")
                                 logger.info("Switching to LAND mode...")
                                 logger.event("FLIGHT_MODE_CHANGED", mode="LAND")
                             
@@ -729,6 +819,11 @@ def main() -> None:
         close_logger()
         return
 
+    telemetry_listener_thread: Thread = Thread(target=telemetry_listener)
+    telemetry_listener_thread.daemon = True
+    telemetry_listener_thread.start()
+    logger.info("Telemetry listener started")
+    
     monitor_thread: Thread = Thread(target=vehicle_state_monitor)
     monitor_thread.daemon = True
     monitor_thread.start()
