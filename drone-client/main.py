@@ -108,34 +108,22 @@ def arm_and_takeoff(target_altitude: float) -> None:
         landing_mode = False
         centering_mode = False
     
-    timeout: int = 30
-    start: float = time.time()
-    while not vehicle.is_armable:
-        if time.time() - start > timeout:
-            logger.warning("Vehicle failed to become armable")
-            raise Exception("Vehicle not armable after timeout")
+    while vehicle.is_armable != True:
         logger.info("Waiting for vehicle to become armable")
         time.sleep(1)
     logger.info("Vehicle is now armable")
     logger.event("VEHICLE_ARMABLE")
 
     vehicle.mode = VehicleMode("GUIDED")
-    start = time.time()
-    while vehicle.mode.name != "GUIDED":
-        if time.time() - start > timeout:
-            logger.warning("Failed to enter GUIDED mode")
-            raise Exception("Mode change timeout")
+
+    while vehicle.mode != "GUIDED":
         logger.info("Waiting for drone to enter GUIDED flight mode")
         time.sleep(1)
     logger.info("Vehicle now in GUIDED mode")
     logger.event("FLIGHT_MODE_CHANGED", mode="GUIDED")
 
     vehicle.armed = True
-    start = time.time()
-    while not vehicle.armed:
-        if time.time() - start > timeout:
-            logger.warning("Failed to arm vehicle")
-            raise Exception("Arm timeout")
+    while vehicle.armed == False:
         logger.info("Waiting for vehicle to become armed")
         time.sleep(1)
     logger.info("Props are spinning!")
@@ -291,19 +279,13 @@ def process_command(command: str) -> None:
                     return
                 
                 vehicle.mode = VehicleMode("GUIDED")
-                timeout: int = 10
-                start: float = time.time()
-                while vehicle.mode.name != "GUIDED" and (time.time() - start) < timeout:
+                while vehicle.mode != "GUIDED":
                     logger.info("Waiting for GUIDED mode...")
                     time.sleep(0.5)
                 
-                if vehicle.mode.name != "GUIDED":
-                    logger.warning("Failed to enter GUIDED mode")
-                    send_response(False, "Mode change timeout", action)
-                    return
-                
                 vehicle.armed = True
-                start = time.time()
+                timeout: int = 10
+                start: float = time.time()
                 while not vehicle.armed and (time.time() - start) < timeout:
                     logger.info("Waiting for vehicle to arm...")
                     time.sleep(0.5)
