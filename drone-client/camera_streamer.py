@@ -3,10 +3,8 @@ os.environ["LIBCAMERA_LOG_LEVELS"] = "ERROR"
 
 import picamera2
 from picamera2 import Picamera2
-from picamera2.encoders import JpegEncoder
-from picamera2.outputs import FileOutput
-from threading import Condition
-import io
+from threading import Thread, Event
+from queue import Queue, Empty
 import base64
 import datetime
 import numpy as np
@@ -22,6 +20,15 @@ stream_topic = "camera/stream"
 aruco_topic = "drone/aruco_detection"
 landing_target_topic = "drone/landing_target"
 camera_status_topic = "camera/status"
+
+FRAME_WIDTH = 480
+FRAME_HEIGHT = 360
+FRAME_DURATION_US = 50000
+STREAM_QUALITY = 28
+STREAM_INTERVAL = 0.066
+DETECTION_INTERVAL = 0.05
+ARUCO_PUBLISH_INTERVAL = 0.1
+APPLY_UNDISTORTION = False
 
 aruco_dict = cv2.aruco.Dictionary_get(cv2.aruco.DICT_4X4_50)
 aruco_params = cv2.aruco.DetectorParameters_create()
@@ -39,30 +46,19 @@ try:
         calibration_loaded = True
         print(f"✓ Camera calibration loaded from {calibration_file}")
     else:
-        print(f"⚠ No camera calibration found")
+        print("⚠ No camera calibration found")
 except Exception as e:
     print(f"⚠ Could not load calibration: {e}")
 
 mqtt_client: Optional[mqtt.Client] = None
 
 last_stream_time: float = 0.0
-stream_rate_limit: float = 0.033
 last_aruco_time: float = 0.0
-aruco_rate_limit: float = 0.1
 last_aruco_publish_time: float = 0.0
-aruco_publish_rate_limit: float = 0.1
 last_detection_data: Dict[str, Any] = {"detected": False, "markers": [], "timestamp": time.time()}
 
-
-class StreamingOutput(io.BufferedIOBase):
-    def __init__(self):
-        self.frame = None
-        self.condition = Condition()
-
-    def write(self, buf):
-        with self.condition:
-            self.frame = buf
-            self.condition.notify_all()
+frame_queue: Queue = Queue(maxsize=3)
+stop_event: Event = Event()
 
 
 def on_connect(client, userdata, flags, rc: int) -> None:
@@ -77,184 +73,182 @@ def on_disconnect(client, userdata, rc: int) -> None:
         print("MQTT client disconnected")
 
 
+def capture_frames(camera: Picamera2) -> None:
+    while not stop_event.is_set():
+        frame = camera.capture_array("main")
+        if frame_queue.full():
+            try:
+                frame_queue.get_nowait()
+            except Empty:
+                pass
+        try:
+            frame_queue.put(frame, timeout=0.01)
+        except Exception:
+            continue
+
+
 def start_video_stream(client) -> None:
     global last_stream_time, last_aruco_time, last_aruco_publish_time, last_detection_data
 
+    stop_event.clear()
+    while not frame_queue.empty():
+        try:
+            frame_queue.get_nowait()
+        except Empty:
+            break
+    capture_thread: Optional[Thread] = None
+
     now: datetime.datetime = datetime.datetime.now()
     timestamp_string: str = now.strftime("%Y-%m-%d_%H-%M-%S")
-    video_file: str = f"./records/{timestamp_string}.mp4"
+    print(f"Starting camera streamer - session {timestamp_string}")
 
-    print(f"Starting camera streamer - recording to {video_file}")
-
-    horizontal_res: int = 640
-    vertical_res: int = 480
+    horizontal_res: int = FRAME_WIDTH
+    vertical_res: int = FRAME_HEIGHT
     horizontal_fov: float = 62.2 * (np.pi / 180)
     vertical_fov: float = 48.8 * (np.pi / 180)
 
     picamera2.Picamera2.set_logging(picamera2.Picamera2.ERROR)
-    
-    from picamera2.outputs import FfmpegOutput
-    
+
     with Picamera2() as camera:
         try:
             print("Creating camera configuration...")
             config = camera.create_video_configuration(
-                main={"size": (horizontal_res, vertical_res)},
-                encode="main",
+                main={"size": (horizontal_res, vertical_res), "format": "RGB888"},
                 controls={
                     "AfMode": 0,
                     "LensPosition": 0.0,
-                    "FrameDurationLimits": (33333, 33333)
-                }
+                    "FrameDurationLimits": (FRAME_DURATION_US, FRAME_DURATION_US)
+                },
+                buffer_count=4
             )
-            
+
             print("Configuring camera...")
             camera.configure(config)
             print("Camera configured successfully")
-            
-            time.sleep(0.5)
-            
+
+            time.sleep(0.2)
+
             print("Setting camera controls...")
             camera.set_controls({"AfMode": 0, "LensPosition": 0.0})
             print("Camera controls set successfully")
-            
+
         except Exception as e:
             print(f"Camera configuration failed: {e}")
             raise
-        
-        encoder: JpegEncoder = JpegEncoder()
-        output1: FfmpegOutput = FfmpegOutput(video_file, audio=False)
-        output3: StreamingOutput = StreamingOutput()
-        output2: FileOutput = FileOutput(output3)
-        encoder.output = [output1, output2]
 
         try:
-            print("Starting camera encoder...")
-            camera.start_encoder(encoder)
             print("Starting camera...")
             camera.start()
-            print("Starting video output...")
-            output1.start()
-            
-            time.sleep(1.0)
+            capture_thread = Thread(target=capture_frames, args=(camera,), daemon=True)
+            capture_thread.start()
+
+            time.sleep(0.5)
             print("✓ Camera streaming started")
-            
+
             client.publish(camera_status_topic, json.dumps({"status": "running", "timestamp": time.time()}), qos=0)
-            
+
         except Exception as e:
             print(f"Camera start failed: {e}")
+            stop_event.set()
             raise
 
-        frame_count: int = 0
-        first_frame_received: bool = False
-        
-        while True:
-            with output3.condition:
-                if not output3.condition.wait(timeout=5.0):
-                    print("No frame received in 5 seconds")
+        try:
+            while True:
+                try:
+                    frame = frame_queue.get(timeout=1.0)
+                except Empty:
+                    print("No frame received in 1 second")
                     continue
-                frame = output3.frame
 
-                if frame:
-                    if not first_frame_received:
-                        print("✓ First frame received!")
-                        first_frame_received = True
-                    
-                    frame_count += 1
-                    current_time: float = time.time()
-                    
-                    should_process_aruco: bool = (current_time - last_aruco_time) >= aruco_rate_limit
-                    should_stream: bool = (current_time - last_stream_time) >= stream_rate_limit
-                    
-                    img_array: np.ndarray = np.frombuffer(frame, dtype=np.uint8)
-                    img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
-                    
-                    if should_process_aruco:
-                        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-                        corners, ids, rejected = cv2.aruco.detectMarkers(gray, aruco_dict, parameters=aruco_params)
-                        last_aruco_time = current_time
-                    else:
-                        ids = None
-                        corners = None
-                    
-                    detection_data: Optional[Dict[str, Any]] = None
-                    
-                    if ids is not None and len(ids) > 0:
-                        marker_id: int = int(ids[0][0])
-                        marker_corners = corners[0][0]
-                        
-                        x_sum: float = sum(marker_corners[:, 0])
-                        y_sum: float = sum(marker_corners[:, 1])
-                        x_avg: float = x_sum / 4
-                        y_avg: float = y_sum / 4
-                        
-                        x_ang: float = (x_avg - horizontal_res * 0.5) * horizontal_fov / horizontal_res
-                        y_ang: float = (y_avg - vertical_res * 0.5) * vertical_fov / vertical_res
-                        
-                        cv2.aruco.drawDetectedMarkers(img, corners, ids)
-                        
-                        detection_data = {
-                            "detected": True,
+                current_time: float = time.time()
+
+                should_process_aruco: bool = (current_time - last_aruco_time) >= DETECTION_INTERVAL
+                should_stream: bool = (current_time - last_stream_time) >= STREAM_INTERVAL
+
+                img = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+
+                if APPLY_UNDISTORTION and calibration_loaded and camera_matrix is not None and dist_coeffs is not None:
+                    img = cv2.undistort(img, camera_matrix, dist_coeffs)
+
+                if should_process_aruco:
+                    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+                    corners, ids, rejected = cv2.aruco.detectMarkers(gray, aruco_dict, parameters=aruco_params)
+                    last_aruco_time = current_time
+                else:
+                    ids = None
+                    corners = None
+
+                detection_data: Optional[Dict[str, Any]] = None
+
+                if ids is not None and len(ids) > 0:
+                    marker_id: int = int(ids[0][0])
+                    marker_corners = corners[0][0]
+
+                    x_sum: float = sum(marker_corners[:, 0])
+                    y_sum: float = sum(marker_corners[:, 1])
+                    x_avg: float = x_sum / 4
+                    y_avg: float = y_sum / 4
+
+                    x_ang: float = (x_avg - horizontal_res * 0.5) * horizontal_fov / horizontal_res
+                    y_ang: float = (y_avg - vertical_res * 0.5) * vertical_fov / vertical_res
+
+                    detection_data = {
+                        "detected": True,
+                        "marker_id": marker_id,
+                        "markers": [
+                            {
+                                "id": marker_id,
+                                "center_x": float(x_avg),
+                                "center_y": float(y_avg),
+                                "corners": marker_corners.tolist()
+                            }
+                        ],
+                        "timestamp": time.time()
+                    }
+
+                    try:
+                        client.publish(landing_target_topic, json.dumps({
                             "marker_id": marker_id,
                             "x_angle": float(x_ang),
                             "y_angle": float(y_ang),
-                            "markers": [
-                                {
-                                    "id": marker_id,
-                                    "center_x": float(x_avg),
-                                    "center_y": float(y_avg),
-                                    "corners": marker_corners.tolist()
-                                }
-                            ],
+                            "center_x": float(x_avg),
+                            "center_y": float(y_avg),
                             "timestamp": time.time()
-                        }
-                        
-                        try:
-                            client.publish(landing_target_topic, json.dumps({
-                                "marker_id": marker_id,
-                                "x_angle": float(x_ang),
-                                "y_angle": float(y_ang),
-                                "center_x": float(x_avg),
-                                "center_y": float(y_avg),
-                                "timestamp": time.time()
-                            }), qos=0)
-                        except Exception as e:
-                            print(f"Landing target publish error: {e}")
-                    else:
-                        detection_data = {
-                            "detected": False,
-                            "markers": [],
-                            "timestamp": time.time()
-                        }
-                    
-                    if detection_data is not None:
-                        last_detection_data = detection_data
-                    
-                    should_publish_aruco: bool = (current_time - last_aruco_publish_time) >= aruco_publish_rate_limit
-                    
-                    try:
-                        if client and client.is_connected():
-                            if should_publish_aruco or (detection_data is not None):
-                                detection_json: str = json.dumps(last_detection_data)
-                                client.publish(aruco_topic, detection_json, qos=0)
-                                last_aruco_publish_time = current_time
-                            
-                            if should_stream:
-                                encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 30]
-                                ret, jpeg = cv2.imencode(".jpg", img, encode_param)
-                                if ret:
-                                    jpg_as_text: str = base64.b64encode(jpeg).decode("utf-8")
-                                    client.publish(stream_topic, jpg_as_text, qos=0)
-                                last_stream_time = current_time
+                        }), qos=0)
                     except Exception as e:
-                        print(f"MQTT publish error: {e}")
+                        print(f"Landing target publish error: {e}")
+                else:
+                    detection_data = {
+                        "detected": False,
+                        "markers": [],
+                        "timestamp": time.time()
+                    }
 
-                    if cv2.waitKey(1) & 0xFF == ord("q"):
-                        print(f"Camera streamer stopped - {frame_count} frames processed")
-                        break
+                if detection_data is not None:
+                    last_detection_data = detection_data
 
-        output1.stop()
-        print("Video recording stopped")
+                should_publish_aruco: bool = (current_time - last_aruco_publish_time) >= ARUCO_PUBLISH_INTERVAL
+
+                try:
+                    if client and client.is_connected():
+                        if should_publish_aruco or (detection_data is not None):
+                            detection_json: str = json.dumps(last_detection_data)
+                            client.publish(aruco_topic, detection_json, qos=0)
+                            last_aruco_publish_time = current_time
+
+                        if should_stream:
+                            encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), STREAM_QUALITY]
+                            ret, jpeg = cv2.imencode(".jpg", img, encode_param)
+                            if ret:
+                                jpg_as_text: str = base64.b64encode(jpeg).decode("utf-8")
+                                client.publish(stream_topic, jpg_as_text, qos=0)
+                            last_stream_time = current_time
+                except Exception as e:
+                    print(f"MQTT publish error: {e}")
+        finally:
+            stop_event.set()
+            if capture_thread:
+                capture_thread.join(timeout=1.0)
 
 
 def main() -> None:
