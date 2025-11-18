@@ -107,9 +107,8 @@ def arm_and_takeoff(targetHeight):
         time.sleep(1)
     
     time.sleep(2)
-    print("Setting flight mode to LOITER to hold position...")
-    vehicle.mode = VehicleMode("LOITER")
-    print("LOITER mode enabled - drone will hold position using GPS")
+    print("Takeoff complete - staying in GUIDED mode for manual control")
+    print("Note: Switch to LOITER manually if you want GPS position hold")
 
     return None
 
@@ -225,6 +224,11 @@ def landing_target_processor():
                             last_command_time = current_time
                     
                     elif centering_mode:
+                        if vehicle.mode.name != "GUIDED":
+                            print("Centering mode requires GUIDED mode - switching from {}".format(vehicle.mode.name))
+                            vehicle.mode = VehicleMode("GUIDED")
+                            time.sleep(0.5) 
+                        
                         horizontal_res = 640
                         vertical_res = 480
                         

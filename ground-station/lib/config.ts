@@ -9,7 +9,7 @@ export const MQTT_CONFIG = {
      * - localhost for simulation
      * - 192.168.0.163 for real drone
      */
-    BROKER_ADDRESS: SIMULATION_MODE ? "localhost" : "192.168.0.163",
+    BROKER_ADDRESS: SIMULATION_MODE ? "localhost" : "192.168.0.231",
 
     /**
      * Broker port
