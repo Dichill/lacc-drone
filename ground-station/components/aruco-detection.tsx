@@ -28,6 +28,8 @@ interface ArUcoDetectionProps {
 }
 
 const MARKER_CACHE_TIMEOUT = 5000;
+const LIVE_MARKER_TIMEOUT = 2000;
+const CLEANUP_INTERVAL = 500;
 
 export function ArUcoDetectionDisplay({
     detection,
@@ -35,13 +37,16 @@ export function ArUcoDetectionDisplay({
     onLockChange,
     autoLockEnabled = false,
 }: ArUcoDetectionProps) {
-    const isDetected = detection?.detected ?? false;
     const [isLocked, setIsLocked] = useState(false);
     const [lockedMarkerId, setLockedMarkerId] = useState<number | null>(null);
     const [cachedMarkers, setCachedMarkers] = useState<
         Map<number, CachedMarker>
     >(new Map());
     const [hasEverDetected, setHasEverDetected] = useState(false);
+    const [hasAdditionalData, setHasAdditionalData] = useState(false);
+
+    const hasActiveMarkers = cachedMarkers.size > 0;
+    const isDetected = detection?.detected ?? false;
 
     const handleLockIn = React.useCallback(
         (markerId: number) => {
@@ -61,15 +66,39 @@ export function ArUcoDetectionDisplay({
     useEffect(() => {
         if (isDetected && detection?.marker_id !== undefined) {
             const markerId = detection.marker_id;
+            const now = Date.now();
+
             setHasEverDetected(true);
+
+            if (!hasAdditionalData && detection) {
+                const additionalKeys = Object.keys(detection).filter(
+                    (key) =>
+                        ![
+                            "detected",
+                            "marker_id",
+                            "distance",
+                            "angle",
+                        ].includes(key)
+                );
+                if (additionalKeys.length > 0) {
+                    setHasAdditionalData(true);
+                }
+            }
+
             setCachedMarkers((prev) => {
                 const updated = new Map(prev);
-                updated.set(markerId, {
-                    id: markerId,
-                    lastSeen: Date.now(),
-                    isLive: true,
-                });
-                return updated;
+                const existing = prev.get(markerId);
+
+                if (!existing || now - existing.lastSeen > 100) {
+                    updated.set(markerId, {
+                        id: markerId,
+                        lastSeen: now,
+                        isLive: true,
+                    });
+                    return updated;
+                }
+
+                return prev;
             });
 
             if (autoLockEnabled && !isLocked) {
@@ -78,9 +107,11 @@ export function ArUcoDetectionDisplay({
         }
     }, [
         isDetected,
+        detection,
         detection?.marker_id,
         autoLockEnabled,
         isLocked,
+        hasAdditionalData,
         handleLockIn,
     ]);
 
@@ -101,7 +132,10 @@ export function ArUcoDetectionDisplay({
                         if (isLocked && id === lockedMarkerId) {
                             handleUnlock();
                         }
-                    } else if (marker.isLive && timeSinceLastSeen > 1000) {
+                    } else if (
+                        marker.isLive &&
+                        timeSinceLastSeen > LIVE_MARKER_TIMEOUT
+                    ) {
                         updated.set(id, { ...marker, isLive: false });
                         hasChanges = true;
                     }
@@ -109,7 +143,7 @@ export function ArUcoDetectionDisplay({
 
                 return hasChanges ? updated : prev;
             });
-        }, 250);
+        }, CLEANUP_INTERVAL);
 
         return () => clearInterval(interval);
     }, [isLocked, lockedMarkerId, handleUnlock]);
@@ -157,7 +191,7 @@ export function ArUcoDetectionDisplay({
                             variant={
                                 isLocked && isCorrectMarker
                                     ? "default"
-                                    : isDetected
+                                    : hasActiveMarkers
                                     ? "default"
                                     : "secondary"
                             }
@@ -167,7 +201,7 @@ export function ArUcoDetectionDisplay({
                                     : "uppercase"
                             }
                         >
-                            {isDetected ? (
+                            {hasActiveMarkers ? (
                                 <>
                                     <Scan className="mr-2 h-3 w-3" />
                                     Detected
@@ -211,18 +245,18 @@ export function ArUcoDetectionDisplay({
                             </div>
                         </div>
                     </div>
-                ) : hasEverDetected || cachedMarkerArray.length > 0 ? (
+                ) : hasEverDetected || hasActiveMarkers ? (
                     <div className="space-y-3">
                         <div className="p-4 bg-slate-900 rounded-lg border border-slate-800 min-h-[120px]">
                             <h4 className="text-sm font-semibold text-slate-300 mb-3">
                                 Detected Markers
                             </h4>
-                            {cachedMarkerArray.length > 0 ? (
+                            {hasActiveMarkers ? (
                                 <div className="space-y-2">
                                     {cachedMarkerArray.map((marker) => (
                                         <div
                                             key={marker.id}
-                                            className={`p-3 rounded-lg border flex items-center justify-between ${
+                                            className={`p-3 rounded-lg border flex items-center justify-between transition-all duration-200 ${
                                                 isLocked &&
                                                 lockedMarkerId === marker.id
                                                     ? "bg-emerald-950 border-emerald-800"
@@ -298,7 +332,7 @@ export function ArUcoDetectionDisplay({
                         </div>
 
                         <div
-                            className={`p-4 rounded-lg ${
+                            className={`p-4 rounded-lg transition-colors duration-300 ${
                                 isCorrectMarker
                                     ? "bg-emerald-950 border border-emerald-800"
                                     : isLocked
@@ -361,7 +395,7 @@ export function ArUcoDetectionDisplay({
                         </div>
 
                         {/* Additional detection data */}
-                        {Object.keys(detection).length > 4 && (
+                        {hasAdditionalData && detection && (
                             <details className="p-3 bg-slate-900 rounded-lg border border-slate-800">
                                 <summary className="text-xs text-slate-400 uppercase tracking-wide cursor-pointer">
                                     Additional Data

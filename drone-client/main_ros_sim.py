@@ -11,7 +11,7 @@ vehicle = connect("tcp:127.0.0.1:5763", wait_ready=True)
 vehicle.parameters["PLND_ENABLED"] = 1
 vehicle.parameters["PLND_TYPE"] = 1
 vehicle.parameters["PLND_EST_TYPE"] = 0
-vehicle.parameters["LAND_SPEED"] = 30
+vehicle.parameters["LAND_SPEED"] = 20
 
 velocity = -0.5
 takeoff_height = 4
@@ -26,18 +26,21 @@ landing_target_topic = "drone/landing_target"
 mqtt_client = None
 centering_mode = False
 landing_mode = False
+landing_mode_initialized = False
 
 smoothed_x_ang = 0.0
 smoothed_y_ang = 0.0
 last_command_time = 0.0
+last_landing_command_time = 0.0
 command_rate_limit = 0.2
+landing_command_rate_limit = 0.05
 
 latest_landing_target = None
 landing_target_lock = Lock()
 
 
 def vehicle_state_monitor():
-    global landing_mode, centering_mode
+    global landing_mode, centering_mode, landing_mode_initialized
     print("Vehicle state monitor started")
     
     was_armed = False
@@ -51,6 +54,7 @@ def vehicle_state_monitor():
                     print("Vehicle disarmed - auto-disabling landing/centering modes")
                     landing_mode = False
                     centering_mode = False
+                    landing_mode_initialized = False
             
             was_armed = is_armed
             time.sleep(0.5)
@@ -61,12 +65,13 @@ def vehicle_state_monitor():
 
 
 def arm_and_takeoff(targetHeight):
-    global landing_mode, centering_mode
+    global landing_mode, centering_mode, landing_mode_initialized
     
     if landing_mode or centering_mode:
         print("Resetting landing/centering modes from previous flight")
         landing_mode = False
         centering_mode = False
+        landing_mode_initialized = False
     
     while vehicle.is_armable != True:
         print("Waiting for vehicle to become armable")
@@ -198,7 +203,8 @@ def telemetry_publisher():
 
 
 def landing_target_processor():
-    global landing_mode, centering_mode, last_command_time, latest_landing_target
+    global landing_mode, centering_mode, last_command_time, last_landing_command_time, latest_landing_target
+    global landing_mode_initialized, smoothed_x_ang, smoothed_y_ang
     print("Landing target processor started")
     
     while True:
@@ -213,15 +219,36 @@ def landing_target_processor():
                     y_ang = target_data.get("y_angle", 0.0)
                     
                     if landing_mode:
+                        if not landing_mode_initialized:
+                            smoothed_x_ang = x_ang
+                            smoothed_y_ang = y_ang
+                            landing_mode_initialized = True
+                            print("Landing mode initialized - smoothing filter reset")
+                        
                         if vehicle.mode != "LAND":
                             vehicle.mode = VehicleMode("LAND")
                             print("Switching to LAND mode...")
                         
-                        smoothed_x, smoothed_y = smooth_angular_position(x_ang, y_ang, alpha=0.2)
+                        current_alt = vehicle.location.global_relative_frame.alt
                         
-                        if current_time - last_command_time >= command_rate_limit:
+                        if current_alt > 2.0:
+                            alpha = 0.5
+                        elif current_alt > 1.0:
+                            alpha = 0.6
+                        else:
+                            alpha = 0.7
+                        
+                        smoothed_x, smoothed_y = smooth_angular_position(x_ang, y_ang, alpha=alpha)
+                        
+                        if current_time - last_landing_command_time >= landing_command_rate_limit:
                             send_land_message(smoothed_x, smoothed_y)
-                            last_command_time = current_time
+                            last_landing_command_time = current_time
+                            
+                            if current_alt < 1.5:
+                                angle_deg_x = abs(smoothed_x * 57.3)
+                                angle_deg_y = abs(smoothed_y * 57.3)
+                                print("Landing: alt={:.1f}m, offset={:.1f}deg, {:.1f}deg".format(
+                                    current_alt, angle_deg_x, angle_deg_y))
                     
                     elif centering_mode:
                         if vehicle.mode.name != "GUIDED":
@@ -373,8 +400,10 @@ def process_command(command):
         elif action == "auto_land":
             print("Action: Executing 'auto_land' command")
             try:
+                global landing_mode_initialized
                 centering_mode = False
                 landing_mode = True
+                landing_mode_initialized = False
                 
                 vehicle.mode = VehicleMode("LAND")
                 print("Switching to LAND mode - precision landing active")
