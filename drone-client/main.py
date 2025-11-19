@@ -13,6 +13,16 @@ print("Waiting for heartbeat...")
 master.wait_heartbeat()
 print(f"Heartbeat from system {master.target_system} component {master.target_component}")
 
+print("Requesting data streams...")
+master.mav.request_data_stream_send(
+    master.target_system,
+    master.target_component,
+    mavutil.mavlink.MAV_DATA_STREAM_ALL,
+    4,
+    1
+)
+print("Data streams requested at 4 Hz")
+
 master.mav.param_set_send(
     master.target_system, master.target_component,
     b'PLND_ENABLED', 1, mavutil.mavlink.MAV_PARAM_TYPE_REAL32)
@@ -130,7 +140,7 @@ def telemetry_listener() -> None:
 
 
 def vehicle_state_monitor() -> None:
-    global landing_mode, centering_mode, current_armed, landing_mode_initialized
+    global landing_mode, centering_mode, current_armed, landing_mode_initialized, latest_landing_target
     logger = get_logger()
     logger.info("Vehicle state monitor started")
     
@@ -147,6 +157,10 @@ def vehicle_state_monitor() -> None:
                     landing_mode = False
                     centering_mode = False
                     landing_mode_initialized = False
+                    
+                    with landing_target_lock:
+                        latest_landing_target = None
+                    logger.info("Cleared stale landing target data")
             
             was_armed = is_armed
             time.sleep(0.5)
@@ -157,7 +171,7 @@ def vehicle_state_monitor() -> None:
 
 
 def arm_and_takeoff(target_altitude: float) -> None:
-    global landing_mode, centering_mode, current_armed, current_mode, landing_mode_initialized
+    global landing_mode, centering_mode, current_armed, current_mode, landing_mode_initialized, latest_landing_target
     logger = get_logger()
     
     if landing_mode or centering_mode:
@@ -165,6 +179,10 @@ def arm_and_takeoff(target_altitude: float) -> None:
         landing_mode = False
         centering_mode = False
         landing_mode_initialized = False
+        
+        with landing_target_lock:
+            latest_landing_target = None
+        logger.info("Cleared stale landing target data")
     
     with telemetry_lock:
         if current_armed:
@@ -380,7 +398,7 @@ def landing_target_processor() -> None:
 
 
 def process_command(command: str) -> None:
-    global centering_mode, landing_mode
+    global centering_mode, landing_mode, latest_landing_target
     logger = get_logger()
     logger.info(f"Processing command: {command}", command=command)
 
@@ -435,6 +453,8 @@ def process_command(command: str) -> None:
             try:
                 centering_mode = False
                 landing_mode = False
+                with landing_target_lock:
+                    latest_landing_target = None
                 
                 with telemetry_lock:
                     mode = current_mode
@@ -463,6 +483,8 @@ def process_command(command: str) -> None:
             try:
                 centering_mode = False
                 landing_mode = False
+                with landing_target_lock:
+                    latest_landing_target = None
                 master.set_mode("LAND")
                 logger.info("Regular landing initiated")
                 logger.event("FLIGHT_MODE_CHANGED", mode="LAND")
@@ -503,7 +525,9 @@ def process_command(command: str) -> None:
             logger.event("CENTERING_MODE_DISABLED")
             try:
                 centering_mode = False
-                logger.info("Centering mode disabled")
+                with landing_target_lock:
+                    latest_landing_target = None
+                logger.info("Centering mode disabled and landing target data cleared")
                 send_response(True, "Centering disabled", action)
             except Exception as e:
                 logger.error(f"Disable centering error: {e}", error=str(e))
@@ -545,6 +569,8 @@ def process_command(command: str) -> None:
             try:
                 centering_mode = False
                 landing_mode = False
+                with landing_target_lock:
+                    latest_landing_target = None
                 master.set_mode("LAND")
                 
                 def emergency_disarm():

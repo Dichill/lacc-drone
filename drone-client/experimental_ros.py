@@ -10,6 +10,16 @@ mav = mavutil.mavlink_connection("tcp:127.0.0.1:5763")
 mav.wait_heartbeat()
 print("Heartbeat received (system {}, component {})".format(mav.target_system, mav.target_component))
 
+print("Requesting data streams...")
+mav.mav.request_data_stream_send(
+    mav.target_system,
+    mav.target_component,
+    mavutil.mavlink.MAV_DATA_STREAM_ALL,
+    4,
+    1
+)
+print("Data streams requested at 4 Hz")
+
 velocity = -0.5
 takeoff_height = 4
 
@@ -106,6 +116,9 @@ def disarm_vehicle():
 def message_listener():
     global vehicle_state
     
+    message_count = 0
+    last_report = time.time()
+    
     while True:
         try:
             msg = mav.recv_match(blocking=True, timeout=1.0)
@@ -113,6 +126,11 @@ def message_listener():
                 continue
             
             msg_type = msg.get_type()
+            message_count += 1
+            
+            if time.time() - last_report > 10:
+                print("Message listener active: {} messages received".format(message_count))
+                last_report = time.time()
             
             if msg_type == "HEARTBEAT":
                 with state_lock:
@@ -125,7 +143,7 @@ def message_listener():
                     vehicle_state["latitude"] = msg.lat / 1e7
                     vehicle_state["longitude"] = msg.lon / 1e7
                     vehicle_state["altitude"] = msg.relative_alt / 1000.0
-                    vehicle_state["heading"] = msg.hdg / 100
+                    vehicle_state["heading"] = msg.hdg // 100
                     vehicle_state["vx"] = msg.vx / 100.0
                     vehicle_state["vy"] = msg.vy / 100.0
                     vehicle_state["vz"] = msg.vz / 100.0
@@ -152,7 +170,7 @@ def message_listener():
 
 
 def vehicle_state_monitor():
-    global landing_mode, centering_mode, landing_mode_initialized
+    global landing_mode, centering_mode, landing_mode_initialized, latest_landing_target
     print("Vehicle state monitor started")
     
     was_armed = False
@@ -168,6 +186,10 @@ def vehicle_state_monitor():
                     landing_mode = False
                     centering_mode = False
                     landing_mode_initialized = False
+                    
+                    with landing_target_lock:
+                        latest_landing_target = None
+                    print("Cleared stale landing target data")
             
             was_armed = is_armed
             time.sleep(0.5)
@@ -178,13 +200,17 @@ def vehicle_state_monitor():
 
 
 def arm_and_takeoff(targetHeight):
-    global landing_mode, centering_mode, landing_mode_initialized
+    global landing_mode, centering_mode, landing_mode_initialized, latest_landing_target
     
     if landing_mode or centering_mode:
         print("Resetting landing/centering modes from previous flight")
         landing_mode = False
         centering_mode = False
         landing_mode_initialized = False
+        
+        with landing_target_lock:
+            latest_landing_target = None
+        print("Cleared stale landing target data")
     
     with state_lock:
         if vehicle_state["armed"]:
@@ -398,7 +424,7 @@ def landing_target_processor():
 
 
 def process_command(command):
-    global centering_mode, landing_mode
+    global centering_mode, landing_mode, latest_landing_target
     print("Processing command: {}".format(command))
 
     try:
@@ -448,6 +474,8 @@ def process_command(command):
             try:
                 centering_mode = False
                 landing_mode = False
+                with landing_target_lock:
+                    latest_landing_target = None
                 
                 with state_lock:
                     current_mode = vehicle_state["mode"]
@@ -474,6 +502,8 @@ def process_command(command):
             try:
                 centering_mode = False
                 landing_mode = False
+                with landing_target_lock:
+                    latest_landing_target = None
                 set_mode("LAND")
                 print("Regular landing initiated")
                 send_response(True, "Landing initiated", action)
@@ -509,7 +539,9 @@ def process_command(command):
         elif action == "disable_centering":
             try:
                 centering_mode = False
-                print("Centering mode disabled")
+                with landing_target_lock:
+                    latest_landing_target = None
+                print("Centering mode disabled and landing target data cleared")
                 send_response(True, "Centering disabled", action)
             except Exception as e:
                 print("Disable centering error: {}".format(e))
@@ -557,6 +589,8 @@ def process_command(command):
             try:
                 centering_mode = False
                 landing_mode = False
+                with landing_target_lock:
+                    latest_landing_target = None
                 set_mode("LAND")
                 
                 def emergency_disarm():
