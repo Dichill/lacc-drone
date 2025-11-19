@@ -247,10 +247,19 @@ def landing_target_processor():
                             smoothed_y = 0.0
                         
                         velocity_gain = 0.3
-                        vx = smoothed_y * velocity_gain
+                        vx = -smoothed_y * velocity_gain
                         vy = smoothed_x * velocity_gain
                         
                         if current_time - last_command_time >= command_rate_limit:
+                            direction_msg = []
+                            if abs(vx) > 0.01:
+                                direction_msg.append("Forward" if vx > 0 else "Backward")
+                            if abs(vy) > 0.01:
+                                direction_msg.append("Right" if vy > 0 else "Left")
+                            if direction_msg:
+                                print("Centering: {} (vx={:.2f}, vy={:.2f}, marker@{:.0f},{:.0f})".format(
+                                    " + ".join(direction_msg), vx, vy, center_x, center_y))
+                            
                             send_local_ned_velocity(vx, vy, 0)
                             last_command_time = current_time
             
