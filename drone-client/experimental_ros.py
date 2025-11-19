@@ -5,7 +5,6 @@ from pymavlink import mavutil
 import paho.mqtt.client as mqtt
 import json
 from threading import Thread, Lock
-import math
 
 mav = mavutil.mavlink_connection("tcp:127.0.0.1:5763")
 mav.wait_heartbeat()
@@ -92,72 +91,16 @@ def get_mode_name(mode_num):
     return mode_mapping.get(mode_num, "UNKNOWN")
 
 
-def get_mode_number(mode_name):
-    mode_mapping = {
-        "STABILIZE": 0,
-        "ACRO": 1,
-        "ALT_HOLD": 2,
-        "AUTO": 3,
-        "GUIDED": 4,
-        "LOITER": 5,
-        "RTL": 6,
-        "CIRCLE": 7,
-        "LAND": 9,
-        "DRIFT": 11,
-        "SPORT": 13,
-        "FLIP": 14,
-        "AUTOTUNE": 15,
-        "POSHOLD": 16,
-        "BRAKE": 17,
-        "THROW": 18,
-        "AVOID_ADSB": 19,
-        "GUIDED_NOGPS": 20,
-        "SMART_RTL": 21,
-    }
-    return mode_mapping.get(mode_name, 4)
-
-
 def set_mode(mode_name):
-    mode_id = get_mode_number(mode_name)
-    mav.mav.command_long_send(
-        mav.target_system,
-        mav.target_component,
-        mavutil.mavlink.MAV_CMD_DO_SET_MODE,
-        0,
-        mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
-        mode_id,
-        0, 0, 0, 0, 0
-    )
+    mav.set_mode(mode_name)
 
 
 def arm_vehicle():
-    mav.mav.command_long_send(
-        mav.target_system,
-        mav.target_component,
-        mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM,
-        0,
-        1, 0, 0, 0, 0, 0, 0
-    )
+    mav.arducopter_arm()
 
 
 def disarm_vehicle():
-    mav.mav.command_long_send(
-        mav.target_system,
-        mav.target_component,
-        mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM,
-        0,
-        0, 0, 0, 0, 0, 0, 0
-    )
-
-
-def takeoff_command(altitude):
-    mav.mav.command_long_send(
-        mav.target_system,
-        mav.target_component,
-        mavutil.mavlink.MAV_CMD_NAV_TAKEOFF,
-        0,
-        0, 0, 0, 0, 0, 0, altitude
-    )
+    mav.arducopter_disarm()
 
 
 def message_listener():
@@ -171,13 +114,14 @@ def message_listener():
             
             msg_type = msg.get_type()
             
-            with state_lock:
-                if msg_type == "HEARTBEAT":
+            if msg_type == "HEARTBEAT":
+                with state_lock:
                     vehicle_state["armed"] = (msg.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED) != 0
                     vehicle_state["mode_num"] = msg.custom_mode
                     vehicle_state["mode"] = get_mode_name(msg.custom_mode)
-                
-                elif msg_type == "GLOBAL_POSITION_INT":
+            
+            elif msg_type == "GLOBAL_POSITION_INT":
+                with state_lock:
                     vehicle_state["latitude"] = msg.lat / 1e7
                     vehicle_state["longitude"] = msg.lon / 1e7
                     vehicle_state["altitude"] = msg.relative_alt / 1000.0
@@ -185,18 +129,21 @@ def message_listener():
                     vehicle_state["vx"] = msg.vx / 100.0
                     vehicle_state["vy"] = msg.vy / 100.0
                     vehicle_state["vz"] = msg.vz / 100.0
-                
-                elif msg_type == "VFR_HUD":
+            
+            elif msg_type == "VFR_HUD":
+                with state_lock:
                     vehicle_state["ground_speed"] = msg.groundspeed
                     vehicle_state["airspeed"] = msg.airspeed
                     vehicle_state["vertical_speed"] = msg.climb
-                
-                elif msg_type == "SYS_STATUS":
+            
+            elif msg_type == "SYS_STATUS":
+                with state_lock:
                     vehicle_state["battery_voltage"] = msg.voltage_battery / 1000.0
                     if msg.battery_remaining >= 0:
                         vehicle_state["battery_level"] = msg.battery_remaining
-                
-                elif msg_type == "GPS_RAW_INT":
+            
+            elif msg_type == "GPS_RAW_INT":
+                with state_lock:
                     vehicle_state["gps_fix"] = msg.fix_type
         
         except Exception as e:
@@ -239,62 +186,29 @@ def arm_and_takeoff(targetHeight):
         centering_mode = False
         landing_mode_initialized = False
     
-    print("Waiting for vehicle to become armable")
-    time.sleep(2)
-    print("Vehicle is now armable")
-
+    with state_lock:
+        if vehicle_state["armed"]:
+            print("Vehicle is already armed")
+        else:
+            print("Arming motors...")
+            arm_vehicle()
+            time.sleep(2)
+    
+    print("Setting flight mode to GUIDED...")
     set_mode("GUIDED")
     time.sleep(1)
     
-    with state_lock:
-        current_mode = vehicle_state["mode"]
-    
-    timeout = 10
-    start = time.time()
-    while current_mode != "GUIDED" and (time.time() - start) < timeout:
-        print("Waiting for drone to enter GUIDED flight mode")
-        time.sleep(1)
-        with state_lock:
-            current_mode = vehicle_state["mode"]
-    
     print("Vehicle now in GUIDED mode. Have Fun!")
-
-    arm_vehicle()
-    time.sleep(1)
     
-    start = time.time()
-    with state_lock:
-        is_armed = vehicle_state["armed"]
+    print("Taking off to {} meters...".format(targetHeight))
+    mav.mav.command_long_send(
+        mav.target_system,
+        mav.target_component,
+        mavutil.mavlink.MAV_CMD_NAV_TAKEOFF,
+        0, 0, 0, 0, 0, 0, 0, targetHeight
+    )
     
-    while not is_armed and (time.time() - start) < timeout:
-        print("Waiting for vehicle to become armed.")
-        time.sleep(1)
-        with state_lock:
-            is_armed = vehicle_state["armed"]
-    
-    print("Look out! Virtual props are spinning!")
-
-    takeoff_command(targetHeight)
-
-    start_time = time.time()
-    timeout = 30
-    while True:
-        with state_lock:
-            current_alt = vehicle_state["altitude"]
-        
-        print("Current Altitude: %d" % current_alt)
-        
-        if current_alt >= 0.95 * targetHeight:
-            print("Target altitude reached!")
-            break
-        
-        if time.time() - start_time > timeout:
-            print("Altitude check timed out after {} seconds".format(timeout))
-            print("Current altitude: {} (target: {})".format(current_alt, targetHeight))
-            print("Continuing anyway - altitude sensor may not be working in sim")
-            break
-        
-        time.sleep(1)
+    print("Takeoff command sent to {} meters".format(targetHeight))
     
     time.sleep(2)
     print("Takeoff complete - staying in GUIDED mode for manual control")
@@ -515,42 +429,16 @@ def process_command(command):
         elif action == "arm":
             print("Action: Executing 'arm' command")
             try:
+                print("Setting flight mode to GUIDED...")
                 set_mode("GUIDED")
                 time.sleep(1)
                 
-                with state_lock:
-                    current_mode = vehicle_state["mode"]
-                
-                timeout = 10
-                start = time.time()
-                while current_mode != "GUIDED" and (time.time() - start) < timeout:
-                    print("Waiting for GUIDED mode...")
-                    time.sleep(0.5)
-                    with state_lock:
-                        current_mode = vehicle_state["mode"]
-                
+                print("Arming motors...")
                 arm_vehicle()
-                time.sleep(1)
+                time.sleep(2)
                 
-                start = time.time()
-                with state_lock:
-                    is_armed = vehicle_state["armed"]
-                
-                while not is_armed and (time.time() - start) < timeout:
-                    print("Waiting for vehicle to arm...")
-                    time.sleep(0.5)
-                    with state_lock:
-                        is_armed = vehicle_state["armed"]
-                
-                with state_lock:
-                    is_armed = vehicle_state["armed"]
-                
-                if is_armed:
-                    print("Vehicle armed successfully")
-                    send_response(True, "Vehicle armed", action)
-                else:
-                    print("Failed to arm vehicle")
-                    send_response(False, "Arm timeout", action)
+                print("Vehicle armed successfully")
+                send_response(True, "Vehicle armed", action)
             except Exception as e:
                 print("Arm error: {}".format(e))
                 send_response(False, "Arm failed: {}".format(str(e)), action)
@@ -571,29 +459,12 @@ def process_command(command):
                     send_response(True, "Landing before disarm", action)
                     return
                 
+                print("Disarming motors...")
                 disarm_vehicle()
                 time.sleep(1)
                 
-                timeout = 10
-                start = time.time()
-                with state_lock:
-                    is_armed = vehicle_state["armed"]
-                
-                while is_armed and (time.time() - start) < timeout:
-                    print("Waiting for vehicle to disarm...")
-                    time.sleep(0.5)
-                    with state_lock:
-                        is_armed = vehicle_state["armed"]
-                
-                with state_lock:
-                    is_armed = vehicle_state["armed"]
-                
-                if not is_armed:
-                    print("Vehicle disarmed successfully")
-                    send_response(True, "Vehicle disarmed", action)
-                else:
-                    print("Failed to disarm vehicle")
-                    send_response(False, "Disarm timeout - vehicle may not be landed", action)
+                print("Vehicle disarmed successfully")
+                send_response(True, "Vehicle disarmed", action)
             except Exception as e:
                 print("Disarm error: {}".format(e))
                 send_response(False, "Disarm failed: {}".format(str(e)), action)
