@@ -166,14 +166,14 @@ export function ArUcoDetectionDisplay({
     };
 
     return (
-        <Card className="p-6 bg-slate-950 border-slate-800">
+        <Card className="p-6 bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-800">
             <div className="space-y-4">
                 <div className="flex items-center justify-between">
                     <div>
-                        <h2 className="text-xl font-bold text-slate-200 uppercase tracking-wide">
+                        <h2 className="text-xl font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wide">
                             ArUco Detection
                         </h2>
-                        <p className="text-sm text-slate-500 mt-1">
+                        <p className="text-sm text-slate-600 dark:text-slate-500 mt-1">
                             Computer Vision Marker Tracking
                         </p>
                     </div>
@@ -217,8 +217,8 @@ export function ArUcoDetectionDisplay({
                 </div>
 
                 {!isConnected ? (
-                    <div className="p-4 bg-slate-900 rounded-lg border border-slate-800">
-                        <div className="flex items-center gap-3 text-slate-500">
+                    <div className="p-4 bg-slate-100 dark:bg-slate-900 rounded-lg border border-slate-300 dark:border-slate-800">
+                        <div className="flex items-center gap-3 text-slate-600 dark:text-slate-500">
                             <AlertCircle className="h-8 w-8" />
                             <div>
                                 <p className="text-sm font-medium">
@@ -232,8 +232,8 @@ export function ArUcoDetectionDisplay({
                         </div>
                     </div>
                 ) : !detection ? (
-                    <div className="p-4 bg-slate-900 rounded-lg border border-slate-800">
-                        <div className="flex items-center gap-3 text-slate-500">
+                    <div className="p-4 bg-slate-100 dark:bg-slate-900 rounded-lg border border-slate-300 dark:border-slate-800">
+                        <div className="flex items-center gap-3 text-slate-600 dark:text-slate-500">
                             <ScanSearch className="h-8 w-8 animate-pulse" />
                             <div>
                                 <p className="text-sm font-medium">
@@ -247,8 +247,8 @@ export function ArUcoDetectionDisplay({
                     </div>
                 ) : hasEverDetected || hasActiveMarkers ? (
                     <div className="space-y-3">
-                        <div className="p-4 bg-slate-900 rounded-lg border border-slate-800 min-h-[120px]">
-                            <h4 className="text-sm font-semibold text-slate-300 mb-3">
+                        <div className="p-4 bg-slate-100 dark:bg-slate-900 rounded-lg border border-slate-300 dark:border-slate-800 min-h-[120px]">
+                            <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3">
                                 Detected Markers
                             </h4>
                             {hasActiveMarkers ? (
@@ -259,13 +259,13 @@ export function ArUcoDetectionDisplay({
                                             className={`p-3 rounded-lg border flex items-center justify-between transition-all duration-200 ${
                                                 isLocked &&
                                                 lockedMarkerId === marker.id
-                                                    ? "bg-emerald-950 border-emerald-800"
-                                                    : "bg-slate-800 border-slate-700"
+                                                    ? "bg-emerald-50 dark:bg-emerald-950 border-emerald-300 dark:border-emerald-800"
+                                                    : "bg-slate-200 dark:bg-slate-800 border-slate-300 dark:border-slate-700"
                                             }`}
                                         >
                                             <div className="flex-1">
                                                 <div className="flex items-center gap-2">
-                                                    <span className="text-lg font-bold text-slate-200 font-mono">
+                                                    <span className="text-lg font-bold text-slate-800 dark:text-slate-200 font-mono">
                                                         ID {marker.id}
                                                     </span>
                                                     {marker.isLive ? (
@@ -316,7 +316,7 @@ export function ArUcoDetectionDisplay({
                                     ))}
                                 </div>
                             ) : (
-                                <div className="flex items-center gap-3 text-slate-500 py-4">
+                                <div className="flex items-center gap-3 text-slate-600 dark:text-slate-500 py-4">
                                     <ScanSearch className="h-6 w-6 animate-pulse" />
                                     <div>
                                         <p className="text-sm font-medium">
@@ -334,19 +334,19 @@ export function ArUcoDetectionDisplay({
                         <div
                             className={`p-4 rounded-lg transition-colors duration-300 ${
                                 isCorrectMarker
-                                    ? "bg-emerald-950 border border-emerald-800"
+                                    ? "bg-emerald-50 dark:bg-emerald-950 border border-emerald-300 dark:border-emerald-800"
                                     : isLocked
-                                    ? "bg-red-950 border border-red-800"
-                                    : "bg-emerald-950 border border-emerald-800"
+                                    ? "bg-red-50 dark:bg-red-950 border border-red-300 dark:border-red-800"
+                                    : "bg-emerald-50 dark:bg-emerald-950 border border-emerald-300 dark:border-emerald-800"
                             }`}
                         >
                             <div
                                 className={`flex items-center gap-3 ${
                                     isCorrectMarker
-                                        ? "text-emerald-200"
+                                        ? "text-emerald-700 dark:text-emerald-200"
                                         : isLocked
-                                        ? "text-red-200"
-                                        : "text-emerald-200"
+                                        ? "text-red-700 dark:text-red-200"
+                                        : "text-emerald-700 dark:text-emerald-200"
                                 }`}
                             >
                                 {isCorrectMarker ? (
@@ -396,11 +396,11 @@ export function ArUcoDetectionDisplay({
 
                         {/* Additional detection data */}
                         {hasAdditionalData && detection && (
-                            <details className="p-3 bg-slate-900 rounded-lg border border-slate-800">
-                                <summary className="text-xs text-slate-400 uppercase tracking-wide cursor-pointer">
+                            <details className="p-3 bg-slate-100 dark:bg-slate-900 rounded-lg border border-slate-300 dark:border-slate-800">
+                                <summary className="text-xs text-slate-600 dark:text-slate-400 uppercase tracking-wide cursor-pointer">
                                     Additional Data
                                 </summary>
-                                <pre className="mt-2 text-xs text-slate-300 font-mono whitespace-pre-wrap break-words">
+                                <pre className="mt-2 text-xs text-slate-800 dark:text-slate-300 font-mono whitespace-pre-wrap break-words">
                                     {JSON.stringify(
                                         Object.fromEntries(
                                             Object.entries(detection).filter(
@@ -421,8 +421,8 @@ export function ArUcoDetectionDisplay({
                         )}
                     </div>
                 ) : (
-                    <div className="p-4 bg-slate-900 rounded-lg border border-slate-800 min-h-[120px] flex items-center">
-                        <div className="flex items-center gap-3 text-slate-500">
+                    <div className="p-4 bg-slate-100 dark:bg-slate-900 rounded-lg border border-slate-300 dark:border-slate-800 min-h-[120px] flex items-center">
+                        <div className="flex items-center gap-3 text-slate-600 dark:text-slate-500">
                             <ScanSearch className="h-8 w-8 animate-pulse" />
                             <div>
                                 <p className="text-sm font-medium">

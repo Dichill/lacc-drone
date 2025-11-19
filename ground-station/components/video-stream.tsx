@@ -52,14 +52,14 @@ export function VideoStream({ videoFrame, isConnected }: VideoStreamProps) {
     }, [videoFrame]);
 
     return (
-        <Card className="p-6 bg-slate-950 border-slate-800">
+        <Card className="p-6 bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-800">
             <div className="space-y-4">
                 <div className="flex items-center justify-between">
                     <div>
-                        <h2 className="text-xl font-bold text-slate-200 uppercase tracking-wide">
+                        <h2 className="text-xl font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wide">
                             Camera Feed
                         </h2>
-                        <p className="text-sm text-slate-500 mt-1">
+                        <p className="text-sm text-slate-600 dark:text-slate-500 mt-1">
                             Live Video Stream
                         </p>
                     </div>
@@ -91,10 +91,10 @@ export function VideoStream({ videoFrame, isConnected }: VideoStreamProps) {
                     </div>
                 </div>
 
-                <div className="relative bg-slate-900 rounded-lg border border-slate-800 overflow-hidden">
+                <div className="relative bg-slate-200 dark:bg-slate-900 rounded-lg border border-slate-300 dark:border-slate-800 overflow-hidden">
                     {!isConnected ? (
                         <div className="aspect-video flex items-center justify-center">
-                            <div className="text-center text-slate-500">
+                            <div className="text-center text-slate-500 dark:text-slate-500">
                                 <VideoOff className="h-16 w-16 mx-auto mb-4 opacity-50" />
                                 <p className="text-sm">Not Connected</p>
                                 <p className="text-xs mt-1">
@@ -104,7 +104,7 @@ export function VideoStream({ videoFrame, isConnected }: VideoStreamProps) {
                         </div>
                     ) : !videoFrame ? (
                         <div className="aspect-video flex items-center justify-center">
-                            <div className="text-center text-slate-500">
+                            <div className="text-center text-slate-500 dark:text-slate-500">
                                 <Video className="h-16 w-16 mx-auto mb-4 opacity-50 animate-pulse" />
                                 <p className="text-sm">
                                     Waiting for Video Stream...
@@ -124,7 +124,7 @@ export function VideoStream({ videoFrame, isConnected }: VideoStreamProps) {
                 </div>
 
                 {videoFrame && (
-                    <div className="flex items-center justify-between text-xs text-slate-500 font-mono">
+                    <div className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-500 font-mono">
                         <span>
                             Last frame:{" "}
                             {new Date(

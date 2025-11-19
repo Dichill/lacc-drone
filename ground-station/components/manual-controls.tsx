@@ -75,14 +75,14 @@ export function ManualControls({
     };
 
     return (
-        <Card className="p-6 bg-slate-950 border-slate-800">
+        <Card className="p-6 bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-800">
             <div className="space-y-6">
                 <div className="flex items-center justify-between">
                     <div>
-                        <h2 className="text-xl font-bold text-slate-200 uppercase tracking-wide">
+                        <h2 className="text-xl font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wide">
                             Manual Controls
                         </h2>
-                        <p className="text-sm text-slate-500 mt-1">
+                        <p className="text-sm text-slate-600 dark:text-slate-500 mt-1">
                             Direct flight control
                         </p>
                     </div>
@@ -96,12 +96,12 @@ export function ManualControls({
 
                 <div className="grid grid-cols-2 gap-6">
                     <div className="space-y-4">
-                        <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wide text-center">
+                        <h3 className="text-sm font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wide text-center">
                             Throttle &amp; Yaw
                         </h3>
 
-                        <div className="flex flex-col items-center bg-slate-900 rounded-lg border border-slate-800 p-4">
-                            <div className="text-xs text-slate-500 uppercase tracking-wide mb-2">
+                        <div className="flex flex-col items-center bg-slate-100 dark:bg-slate-900 rounded-lg border border-slate-300 dark:border-slate-800 p-4">
+                            <div className="text-xs text-slate-600 dark:text-slate-500 uppercase tracking-wide mb-2">
                                 Throttle
                             </div>
                             <div className="flex flex-col items-center gap-2 mb-3">
@@ -169,9 +169,9 @@ export function ManualControls({
                             </div>
                         </div>
 
-                        <div className="flex justify-center gap-2 bg-slate-900 rounded-lg border border-slate-800 p-4">
+                        <div className="flex justify-center gap-2 bg-slate-100 dark:bg-slate-900 rounded-lg border border-slate-300 dark:border-slate-800 p-4">
                             <div className="flex flex-col items-center w-full">
-                                <div className="text-xs text-slate-500 uppercase tracking-wide mb-2">
+                                <div className="text-xs text-slate-600 dark:text-slate-500 uppercase tracking-wide mb-2">
                                     Yaw
                                 </div>
                                 <div className="flex gap-2">
@@ -233,12 +233,12 @@ export function ManualControls({
                     </div>
 
                     <div className="space-y-4">
-                        <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wide text-center">
+                        <h3 className="text-sm font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wide text-center">
                             Directional
                         </h3>
 
-                        <div className="flex flex-col items-center bg-slate-900 rounded-lg border border-slate-800 p-4">
-                            <div className="text-xs text-slate-500 uppercase tracking-wide mb-3">
+                        <div className="flex flex-col items-center bg-slate-100 dark:bg-slate-900 rounded-lg border border-slate-300 dark:border-slate-800 p-4">
+                            <div className="text-xs text-slate-600 dark:text-slate-500 uppercase tracking-wide mb-3">
                                 Horizontal Movement
                             </div>
 

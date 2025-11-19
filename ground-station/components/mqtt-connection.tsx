@@ -31,14 +31,14 @@ export function MQTTConnection({
     };
 
     return (
-        <Card className="p-6 bg-slate-950 border-slate-800">
+        <Card className="p-6 bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-800">
             <div className="space-y-4">
                 <div className="flex items-center justify-between">
                     <div>
-                        <h2 className="text-xl font-bold text-slate-200 uppercase tracking-wide">
+                        <h2 className="text-xl font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wide">
                             MQTT Connection
                         </h2>
-                        <p className="text-sm text-slate-500 mt-1">
+                        <p className="text-sm text-slate-600 dark:text-slate-500 mt-1">
                             Drone Communication Protocol
                         </p>
                     </div>
@@ -85,32 +85,33 @@ export function MQTTConnection({
                 </div>
 
                 {mqtt.error && (
-                    <div className="p-3 bg-red-950 border border-red-800 rounded-lg">
-                        <p className="text-sm text-red-200">⚠️ {mqtt.error}</p>
+                    <div className="p-3 bg-red-50 dark:bg-red-950 border border-red-300 dark:border-red-800 rounded-lg">
+                        <p className="text-sm text-red-700 dark:text-red-200">
+                            ⚠️ {mqtt.error}
+                        </p>
                     </div>
                 )}
 
                 {mqtt.isConnected && (
                     <div className="space-y-3">
-                        <div className="p-3 bg-slate-900 rounded-lg border border-slate-800">
+                        <div className="p-3 bg-slate-100 dark:bg-slate-900 rounded-lg border border-slate-300 dark:border-slate-800">
                             <div className="flex items-center justify-between">
-                                <span className="text-xs text-slate-400 uppercase tracking-wide">
+                                <span className="text-xs text-slate-600 dark:text-slate-400 uppercase tracking-wide">
                                     Messages Received
                                 </span>
-                                <span className="text-lg font-bold text-emerald-400 font-mono">
+                                <span className="text-lg font-bold text-emerald-600 dark:text-emerald-400 font-mono">
                                     {mqtt.messageCount}
                                 </span>
                             </div>
                         </div>
 
-
                         {mqtt.videoFrame && (
-                            <div className="p-3 bg-slate-900 rounded-lg border border-slate-800">
+                            <div className="p-3 bg-slate-100 dark:bg-slate-900 rounded-lg border border-slate-300 dark:border-slate-800">
                                 <div className="flex items-center justify-between">
-                                    <span className="text-xs text-slate-400 uppercase tracking-wide">
+                                    <span className="text-xs text-slate-600 dark:text-slate-400 uppercase tracking-wide">
                                         Video Stream
                                     </span>
-                                    <span className="text-xs text-emerald-400 font-mono">
+                                    <span className="text-xs text-emerald-600 dark:text-emerald-400 font-mono">
                                         Active
                                     </span>
                                 </div>

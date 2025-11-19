@@ -144,7 +144,7 @@ export function CircularGauge({
     }, [value, min, max, warningThreshold, dangerThreshold, dangerOnHigh]);
 
     return (
-        <Card className="p-4 bg-slate-950 border-slate-800 hover:border-sky-500/50 transition-colors">
+        <Card className="p-4 bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-800 hover:border-sky-500/50 transition-colors">
             <div className="flex flex-col items-center">
                 <canvas
                     ref={canvasRef}
@@ -156,10 +156,10 @@ export function CircularGauge({
                     <div className="text-3xl font-bold font-mono text-sky-400 tracking-wider">
                         {value.toFixed(1)}
                     </div>
-                    <div className="text-xs text-slate-400 uppercase tracking-widest mt-1">
+                    <div className="text-xs text-slate-600 dark:text-slate-400 uppercase tracking-widest mt-1">
                         {unit}
                     </div>
-                    <div className="text-sm text-slate-500 uppercase tracking-wide mt-2 font-semibold">
+                    <div className="text-sm text-slate-700 dark:text-slate-500 uppercase tracking-wide mt-2 font-semibold">
                         {label}
                     </div>
                 </div>

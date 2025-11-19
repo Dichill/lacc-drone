@@ -29,14 +29,14 @@ export function LinearGauge({
     };
 
     return (
-        <Card className="p-4 bg-slate-950 border-slate-800 hover:border-sky-500/50 transition-colors h-full">
+        <Card className="p-4 bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-800 hover:border-sky-500/50 transition-colors h-full">
             <div className="flex flex-col items-center h-full">
-                <div className="text-sm text-slate-500 uppercase tracking-wide font-semibold mb-3">
+                <div className="text-sm text-slate-700 dark:text-slate-500 uppercase tracking-wide font-semibold mb-3">
                     {label}
                 </div>
 
-                <div className="relative w-20 flex-1 bg-slate-900 rounded-lg border border-slate-700">
-                    <div className="absolute left-0 right-0 top-1/2 h-[2px] bg-slate-600 z-10" />
+                <div className="relative w-20 flex-1 bg-slate-200 dark:bg-slate-900 rounded-lg border border-slate-300 dark:border-slate-700">
+                    <div className="absolute left-0 right-0 top-1/2 h-[2px] bg-slate-400 dark:bg-slate-600 z-10" />
 
                     {[-4, -2, 0, 2, 4].map((tick) => {
                         const tickPercentage =
@@ -47,8 +47,8 @@ export function LinearGauge({
                                 className="absolute left-0 right-0 flex items-center"
                                 style={{ top: `${100 - tickPercentage}%` }}
                             >
-                                <div className="w-2 h-[1px] bg-slate-600" />
-                                <span className="text-[10px] text-slate-500 ml-1 font-mono">
+                                <div className="w-2 h-[1px] bg-slate-400 dark:bg-slate-600" />
+                                <span className="text-[10px] text-slate-600 dark:text-slate-500 ml-1 font-mono">
                                     {tick}
                                 </span>
                             </div>
@@ -77,7 +77,7 @@ export function LinearGauge({
                         {value > 0 ? "+" : ""}
                         {value.toFixed(2)}
                     </div>
-                    <div className="text-xs text-slate-400 uppercase tracking-widest mt-1">
+                    <div className="text-xs text-slate-600 dark:text-slate-400 uppercase tracking-widest mt-1">
                         {unit}
                     </div>
                 </div>

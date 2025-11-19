@@ -224,14 +224,14 @@ export function ControlPanel({
     };
 
     return (
-        <Card className="p-6 bg-slate-950 border-slate-800">
+        <Card className="p-6 bg-white dark:bg-slate-950 border-slate-300 dark:border-slate-800">
             <div className="space-y-6">
                 <div className="flex items-center justify-between">
                     <div>
-                        <h2 className="text-xl font-bold text-slate-200 uppercase tracking-wide">
+                        <h2 className="text-xl font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wide">
                             Mission Control
                         </h2>
-                        <p className="text-sm text-slate-500 mt-1">
+                        <p className="text-sm text-slate-600 dark:text-slate-500 mt-1">
                             Los Angeles City College Drone Operations
                         </p>
                     </div>
@@ -252,16 +252,16 @@ export function ControlPanel({
                 </div>
 
                 {!isConnected && (
-                    <div className="p-3 bg-amber-950 border border-amber-800 rounded-lg">
-                        <p className="text-sm text-amber-200">
+                    <div className="p-3 bg-amber-50 dark:bg-amber-950 border border-amber-300 dark:border-amber-800 rounded-lg">
+                        <p className="text-sm text-amber-800 dark:text-amber-200">
                             ⚠️ Not connected to MQTT broker
                         </p>
                     </div>
                 )}
 
                 {lastResponse && !lastResponse.success && (
-                    <div className="p-3 bg-red-950 border border-red-800 rounded-lg">
-                        <p className="text-sm text-red-200">
+                    <div className="p-3 bg-red-50 dark:bg-red-950 border border-red-300 dark:border-red-800 rounded-lg">
+                        <p className="text-sm text-red-800 dark:text-red-200">
                             <strong className="uppercase">
                                 {lastResponse.action}
                             </strong>
@@ -271,32 +271,34 @@ export function ControlPanel({
                 )}
 
                 {telemetry && (
-                    <div className="p-4 bg-slate-900 rounded-lg border border-slate-800">
-                        <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3">
+                    <div className="p-4 bg-slate-100 dark:bg-slate-900 rounded-lg border border-slate-300 dark:border-slate-800">
+                        <h3 className="text-sm font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wide mb-3">
                             Live Telemetry
                         </h3>
                         <div className="grid grid-cols-2 gap-3 text-sm">
                             <div>
-                                <span className="text-slate-500">Mode:</span>
-                                <span className="ml-2 text-slate-200 font-mono">
+                                <span className="text-slate-600 dark:text-slate-500">
+                                    Mode:
+                                </span>
+                                <span className="ml-2 text-slate-800 dark:text-slate-200 font-mono">
                                     {telemetry.mode}
                                 </span>
                             </div>
                             <div>
-                                <span className="text-slate-500">
+                                <span className="text-slate-600 dark:text-slate-500">
                                     Altitude:
                                 </span>
-                                <span className="ml-2 text-slate-200 font-mono">
+                                <span className="ml-2 text-slate-800 dark:text-slate-200 font-mono">
                                     {(telemetry.altitude ?? 0).toFixed(2)}m
                                 </span>
                             </div>
                             {telemetry.battery !== null &&
                                 telemetry.battery !== undefined && (
                                     <div>
-                                        <span className="text-slate-500">
+                                        <span className="text-slate-600 dark:text-slate-500">
                                             Battery:
                                         </span>
-                                        <span className="ml-2 text-slate-200 font-mono">
+                                        <span className="ml-2 text-slate-800 dark:text-slate-200 font-mono">
                                             {telemetry.battery}%
                                         </span>
                                     </div>
@@ -304,10 +306,10 @@ export function ControlPanel({
                             {telemetry.gps_fix !== null &&
                                 telemetry.gps_fix !== undefined && (
                                     <div>
-                                        <span className="text-slate-500">
+                                        <span className="text-slate-600 dark:text-slate-500">
                                             GPS Fix:
                                         </span>
-                                        <span className="ml-2 text-slate-200 font-mono">
+                                        <span className="ml-2 text-slate-800 dark:text-slate-200 font-mono">
                                             {telemetry.gps_fix}
                                         </span>
                                     </div>
@@ -317,8 +319,8 @@ export function ControlPanel({
                 )}
 
                 {/* Manual Arm/Disarm */}
-                <div className="p-4 bg-slate-900 rounded-lg border border-slate-800">
-                    <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3">
+                <div className="p-4 bg-slate-100 dark:bg-slate-900 rounded-lg border border-slate-300 dark:border-slate-800">
+                    <h3 className="text-sm font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wide mb-3">
                         System Status
                     </h3>
                     <Button
@@ -344,13 +346,13 @@ export function ControlPanel({
                 </div>
 
                 {/* Takeoff Section */}
-                <div className="p-4 bg-slate-900 rounded-lg border border-slate-800">
-                    <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3">
+                <div className="p-4 bg-slate-100 dark:bg-slate-900 rounded-lg border border-slate-300 dark:border-slate-800">
+                    <h3 className="text-sm font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wide mb-3">
                         Takeoff
                     </h3>
                     <div className="space-y-3">
                         <div>
-                            <label className="text-xs text-slate-400 block mb-2">
+                            <label className="text-xs text-slate-600 dark:text-slate-400 block mb-2">
                                 Altitude (meters)
                             </label>
                             <input
@@ -361,7 +363,7 @@ export function ControlPanel({
                                 max="50"
                                 step="0.5"
                                 disabled={!isConnected || isArmed}
-                                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-slate-200 text-sm disabled:opacity-50"
+                                className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded text-slate-800 dark:text-slate-200 text-sm disabled:opacity-50"
                             />
                         </div>
                         <Button
@@ -383,13 +385,13 @@ export function ControlPanel({
                 </div>
 
                 {/* Move Section */}
-                <div className="p-4 bg-slate-900 rounded-lg border border-slate-800">
-                    <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3">
+                <div className="p-4 bg-slate-100 dark:bg-slate-900 rounded-lg border border-slate-300 dark:border-slate-800">
+                    <h3 className="text-sm font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wide mb-3">
                         Navigation
                     </h3>
                     <div className="space-y-3">
                         <div>
-                            <label className="text-xs text-slate-400 block mb-2">
+                            <label className="text-xs text-slate-600 dark:text-slate-400 block mb-2">
                                 Destination (latitude, longitude)
                             </label>
                             <input
@@ -398,9 +400,9 @@ export function ControlPanel({
                                 onChange={(e) => setDestination(e.target.value)}
                                 placeholder="34.052235, -118.243683"
                                 disabled={!isConnected || !isArmed}
-                                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-slate-200 text-sm disabled:opacity-50 font-mono"
+                                className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded text-slate-800 dark:text-slate-200 text-sm disabled:opacity-50 font-mono"
                             />
-                            <p className="text-xs text-slate-500 mt-1">
+                            <p className="text-xs text-slate-600 dark:text-slate-500 mt-1">
                                 Format: lat, lon (e.g., 34.052235, -118.243683)
                             </p>
                         </div>
@@ -418,8 +420,8 @@ export function ControlPanel({
                 </div>
 
                 {/* Landing Controls */}
-                <div className="p-4 bg-slate-900 rounded-lg border border-slate-800">
-                    <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3">
+                <div className="p-4 bg-slate-100 dark:bg-slate-900 rounded-lg border border-slate-300 dark:border-slate-800">
+                    <h3 className="text-sm font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wide mb-3">
                         Landing Controls
                     </h3>
 
@@ -504,8 +506,8 @@ export function ControlPanel({
                 </div>
 
                 {/* Centering Control */}
-                <div className="p-4 bg-slate-900 rounded-lg border border-slate-800">
-                    <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3">
+                <div className="p-4 bg-slate-100 dark:bg-slate-900 rounded-lg border border-slate-300 dark:border-slate-800">
+                    <h3 className="text-sm font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wide mb-3">
                         Marker Centering
                     </h3>
                     <Button
@@ -532,8 +534,8 @@ export function ControlPanel({
                 </div>
 
                 {/* Auto-Lock Toggle */}
-                <div className="p-4 bg-slate-900 rounded-lg border border-slate-800">
-                    <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3">
+                <div className="p-4 bg-slate-100 dark:bg-slate-900 rounded-lg border border-slate-300 dark:border-slate-800">
+                    <h3 className="text-sm font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wide mb-3">
                         Auto-Lock Markers
                     </h3>
                     <Button
@@ -560,8 +562,8 @@ export function ControlPanel({
                 </div>
 
                 {(isTakingOff || activeLandingMode !== null) && (
-                    <div className="p-3 bg-amber-950 border border-amber-800 rounded-lg">
-                        <p className="text-sm text-amber-200 font-medium">
+                    <div className="p-3 bg-amber-50 dark:bg-amber-950 border border-amber-300 dark:border-amber-800 rounded-lg">
+                        <p className="text-sm text-amber-800 dark:text-amber-200 font-medium">
                             ⚠️ Operation in progress:{" "}
                             <span className="uppercase font-bold">
                                 {isTakingOff

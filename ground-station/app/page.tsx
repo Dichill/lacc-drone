@@ -9,6 +9,7 @@ import { ManualControls } from "@/components/manual-controls";
 import { MQTTConnection } from "@/components/mqtt-connection";
 import { VideoStream } from "@/components/video-stream";
 import { ArUcoDetectionDisplay } from "@/components/aruco-detection";
+import { ThemeSwitcher } from "@/components/theme-switcher";
 import { Badge } from "@/components/ui/badge";
 import { Activity, Wifi } from "lucide-react";
 import { useMQTT } from "@/hooks/use-mqtt";
@@ -65,18 +66,19 @@ export default function Home() {
     };
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-4 md:p-6 lg:p-8">
+        <div className="min-h-screen bg-gradient-to-br from-slate-50 via-slate-100 to-slate-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 p-4 md:p-6 lg:p-8">
             <header className="mb-6">
                 <div className="flex items-start justify-between flex-wrap gap-4">
                     <div>
-                        <h1 className="text-3xl md:text-4xl font-bold text-slate-100 uppercase tracking-tight">
+                        <h1 className="text-3xl md:text-4xl font-bold text-slate-900 dark:text-slate-100 uppercase tracking-tight">
                             Ground Station
                         </h1>
-                        <p className="text-slate-400 mt-1 text-sm md:text-base">
+                        <p className="text-slate-600 dark:text-slate-400 mt-1 text-sm md:text-base">
                             Los Angeles City College - Drone Operations Center
                         </p>
                     </div>
                     <div className="flex items-center gap-3">
+                        <ThemeSwitcher />
                         <Badge
                             variant={
                                 mqtt.isConnected ? "default" : "destructive"
@@ -88,14 +90,14 @@ export default function Home() {
                         </Badge>
                         <Badge
                             variant="outline"
-                            className="px-3 py-1 text-sm border-slate-700"
+                            className="px-3 py-1 text-sm border-slate-300 dark:border-slate-700"
                         >
                             <Activity className="mr-2 h-4 w-4" />
                             {mqtt.messageCount > 0 ? "Live" : "Idle"}
                         </Badge>
                     </div>
                 </div>
-                <div className="mt-4 text-xs text-slate-500 font-mono">
+                <div className="mt-4 text-xs text-slate-500 dark:text-slate-500 font-mono">
                     Last Update: {lastUpdate?.toLocaleTimeString() || "—"} |
                     Messages: {mqtt.messageCount}
                 </div>
@@ -106,7 +108,7 @@ export default function Home() {
                 <div className="xl:col-span-2 space-y-6">
                     {/* Video Stream */}
                     <div>
-                        <h2 className="text-lg font-semibold text-slate-300 uppercase tracking-wide mb-4 flex items-center">
+                        <h2 className="text-lg font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wide mb-4 flex items-center">
                             <div className="w-1 h-5 bg-purple-500 mr-3 rounded" />
                             Camera Feed
                         </h2>
@@ -118,7 +120,7 @@ export default function Home() {
 
                     {/* ArUco Detection */}
                     <div>
-                        <h2 className="text-lg font-semibold text-slate-300 uppercase tracking-wide mb-4 flex items-center">
+                        <h2 className="text-lg font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wide mb-4 flex items-center">
                             <div className="w-1 h-5 bg-emerald-500 mr-3 rounded" />
                             Marker Detection
                         </h2>
@@ -132,7 +134,7 @@ export default function Home() {
 
                     {/* Flight Instruments */}
                     <div>
-                        <h2 className="text-lg font-semibold text-slate-300 uppercase tracking-wide mb-4 flex items-center">
+                        <h2 className="text-lg font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wide mb-4 flex items-center">
                             <div className="w-1 h-5 bg-sky-500 mr-3 rounded" />
                             Primary Flight Instruments
                         </h2>
@@ -172,7 +174,7 @@ export default function Home() {
 
                     {/* Navigation & Orientation */}
                     <div>
-                        <h2 className="text-lg font-semibold text-slate-300 uppercase tracking-wide mb-4 flex items-center">
+                        <h2 className="text-lg font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wide mb-4 flex items-center">
                             <div className="w-1 h-5 bg-purple-500 mr-3 rounded" />
                             Navigation &amp; Orientation
                         </h2>
@@ -197,25 +199,25 @@ export default function Home() {
                         telemetry.latitude !== undefined &&
                         telemetry.longitude !== undefined && (
                             <div>
-                                <h2 className="text-lg font-semibold text-slate-300 uppercase tracking-wide mb-4 flex items-center">
+                                <h2 className="text-lg font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wide mb-4 flex items-center">
                                     <div className="w-1 h-5 bg-emerald-500 mr-3 rounded" />
                                     GPS Position
                                 </h2>
-                                <div className="p-4 bg-slate-900 rounded-lg border border-slate-800">
+                                <div className="p-4 bg-slate-100 dark:bg-slate-900 rounded-lg border border-slate-300 dark:border-slate-800">
                                     <div className="grid grid-cols-2 gap-4 text-sm">
                                         <div>
-                                            <span className="text-slate-500">
+                                            <span className="text-slate-600 dark:text-slate-500">
                                                 Latitude:
                                             </span>
-                                            <div className="mt-1 text-slate-200 font-mono text-lg">
+                                            <div className="mt-1 text-slate-800 dark:text-slate-200 font-mono text-lg">
                                                 {telemetry.latitude.toFixed(6)}°
                                             </div>
                                         </div>
                                         <div>
-                                            <span className="text-slate-500">
+                                            <span className="text-slate-600 dark:text-slate-500">
                                                 Longitude:
                                             </span>
-                                            <div className="mt-1 text-slate-200 font-mono text-lg">
+                                            <div className="mt-1 text-slate-800 dark:text-slate-200 font-mono text-lg">
                                                 {telemetry.longitude.toFixed(6)}
                                                 °
                                             </div>
@@ -230,16 +232,30 @@ export default function Home() {
                 <div className="xl:col-span-1 space-y-6">
                     {/* MQTT Connection */}
                     <div>
-                        <h2 className="text-lg font-semibold text-slate-300 uppercase tracking-wide mb-4 flex items-center">
+                        <h2 className="text-lg font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wide mb-4 flex items-center">
                             <div className="w-1 h-5 bg-purple-500 mr-3 rounded" />
                             Connection
                         </h2>
                         <MQTTConnection mqtt={mqtt} />
                     </div>
 
+                    {/* Manual Flight Control */}
+                    <div>
+                        <h2 className="text-lg font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wide mb-4 flex items-center">
+                            <div className="w-1 h-5 bg-sky-500 mr-3 rounded" />
+                            Manual Flight Control
+                        </h2>
+                        <ManualControls
+                            onControl={handleManualControl}
+                            enabled={
+                                mqtt.isConnected && (telemetry.armed ?? false)
+                            }
+                        />
+                    </div>
+
                     {/* Mission Control */}
                     <div>
-                        <h2 className="text-lg font-semibold text-slate-300 uppercase tracking-wide mb-4 flex items-center">
+                        <h2 className="text-lg font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wide mb-4 flex items-center">
                             <div className="w-1 h-5 bg-emerald-500 mr-3 rounded" />
                             Mission Control
                         </h2>
@@ -252,28 +268,14 @@ export default function Home() {
                             onAutoLockChange={handleAutoLockChange}
                         />
                     </div>
-
-                    {/* Manual Flight Control */}
-                    <div>
-                        <h2 className="text-lg font-semibold text-slate-300 uppercase tracking-wide mb-4 flex items-center">
-                            <div className="w-1 h-5 bg-sky-500 mr-3 rounded" />
-                            Manual Flight Control
-                        </h2>
-                        <ManualControls
-                            onControl={handleManualControl}
-                            enabled={
-                                mqtt.isConnected && (telemetry.armed ?? false)
-                            }
-                        />
-                    </div>
                 </div>
             </div>
 
-            <footer className="mt-8 pt-6 border-t border-slate-800">
-                <div className="text-center text-xs text-slate-600">
+            <footer className="mt-8 pt-6 border-t border-slate-300 dark:border-slate-800">
+                <div className="text-center text-xs text-slate-500 dark:text-slate-600">
                     <p>Los Angeles City College - Developed by SHPE</p>
                     <p className="mt-1">YEAR 2024-2025</p>
-                    <p className="mt-2 text-slate-700">
+                    <p className="mt-2 text-slate-400 dark:text-slate-700">
                         MQTT Protocol | Topics: drone/commands, camera/stream,
                         drone/aruco_detection
                     </p>

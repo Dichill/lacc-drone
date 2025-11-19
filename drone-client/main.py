@@ -24,7 +24,7 @@ master.mav.param_set_send(
     b'PLND_EST_TYPE', 0, mavutil.mavlink.MAV_PARAM_TYPE_REAL32)
 master.mav.param_set_send(
     master.target_system, master.target_component,
-    b'LAND_SPEED', 30, mavutil.mavlink.MAV_PARAM_TYPE_REAL32)
+    b'LAND_SPEED', 20, mavutil.mavlink.MAV_PARAM_TYPE_REAL32)
 
 broker_address = "localhost"
 broker_port = 1883
@@ -36,12 +36,15 @@ landing_target_topic = "drone/landing_target"
 mqtt_client: Optional[mqtt.Client] = None
 centering_mode: bool = False
 landing_mode: bool = False
+landing_mode_initialized: bool = False
 takeoff_height: float = 4.0
 
 smoothed_x_ang: float = 0.0
 smoothed_y_ang: float = 0.0
 last_command_time: float = 0.0
+last_landing_command_time: float = 0.0
 command_rate_limit: float = 0.2
+landing_command_rate_limit: float = 0.05
 last_manual_control_time: float = 0.0
 manual_control_rate_limit: float = 0.05
 
@@ -127,7 +130,7 @@ def telemetry_listener() -> None:
 
 
 def vehicle_state_monitor() -> None:
-    global landing_mode, centering_mode, current_armed
+    global landing_mode, centering_mode, current_armed, landing_mode_initialized
     logger = get_logger()
     logger.info("Vehicle state monitor started")
     
@@ -143,6 +146,7 @@ def vehicle_state_monitor() -> None:
                     logger.info("Vehicle disarmed - auto-disabling landing/centering modes")
                     landing_mode = False
                     centering_mode = False
+                    landing_mode_initialized = False
             
             was_armed = is_armed
             time.sleep(0.5)
@@ -153,13 +157,14 @@ def vehicle_state_monitor() -> None:
 
 
 def arm_and_takeoff(target_altitude: float) -> None:
-    global landing_mode, centering_mode, current_armed, current_mode
+    global landing_mode, centering_mode, current_armed, current_mode, landing_mode_initialized
     logger = get_logger()
     
     if landing_mode or centering_mode:
         logger.info("Resetting landing/centering modes from previous flight")
         landing_mode = False
         centering_mode = False
+        landing_mode_initialized = False
     
     with telemetry_lock:
         if current_armed:
@@ -189,10 +194,8 @@ def arm_and_takeoff(target_altitude: float) -> None:
     logger.event("TAKEOFF_COMMAND_SENT", altitude=target_altitude)
     
     time.sleep(2)
-    logger.info("Setting flight mode to LOITER to hold position...")
-    master.set_mode("LOITER")
-    logger.event("FLIGHT_MODE_CHANGED", mode="LOITER")
-    logger.info("LOITER mode enabled - drone will hold position using GPS")
+    logger.info("Takeoff complete - staying in GUIDED mode for manual control")
+    logger.info("Note: Switch to LOITER manually if you want GPS position hold")
 
 
 def send_local_ned_velocity(vx: float, vy: float, vz: float) -> None:
@@ -275,7 +278,8 @@ def telemetry_publisher() -> None:
 
 
 def landing_target_processor() -> None:
-    global landing_mode, centering_mode, last_command_time, latest_landing_target
+    global landing_mode, centering_mode, last_command_time, last_landing_command_time, latest_landing_target
+    global landing_mode_initialized, smoothed_x_ang, smoothed_y_ang, current_altitude
     logger = get_logger()
     logger.info("Landing target processor started")
     
@@ -291,20 +295,49 @@ def landing_target_processor() -> None:
                     y_ang = target_data.get("y_angle", 0.0)
                     
                     if landing_mode:
+                        if not landing_mode_initialized:
+                            smoothed_x_ang = x_ang
+                            smoothed_y_ang = y_ang
+                            landing_mode_initialized = True
+                            logger.info("Landing mode initialized - smoothing filter reset")
+                        
                         with telemetry_lock:
                             mode = current_mode
+                            current_alt = current_altitude
+                        
                         if mode != "LAND":
                             master.set_mode("LAND")
                             logger.info("Switching to LAND mode...")
                             logger.event("FLIGHT_MODE_CHANGED", mode="LAND")
                         
-                        smoothed_x, smoothed_y = smooth_angular_position(x_ang, y_ang, alpha=0.2)
+                        if current_alt > 2.0:
+                            alpha = 0.5
+                        elif current_alt > 1.0:
+                            alpha = 0.6
+                        else:
+                            alpha = 0.7
                         
-                        if current_time - last_command_time >= command_rate_limit:
+                        smoothed_x, smoothed_y = smooth_angular_position(x_ang, y_ang, alpha=alpha)
+                        
+                        if current_time - last_landing_command_time >= landing_command_rate_limit:
                             send_land_message(smoothed_x, smoothed_y)
-                            last_command_time = current_time
+                            last_landing_command_time = current_time
+                            
+                            if current_alt < 1.5:
+                                angle_deg_x = abs(smoothed_x * 57.3)
+                                angle_deg_y = abs(smoothed_y * 57.3)
+                                logger.info(f"Landing: alt={current_alt:.1f}m, offset={angle_deg_x:.1f}deg, {angle_deg_y:.1f}deg",
+                                          altitude=current_alt, offset_x=angle_deg_x, offset_y=angle_deg_y)
                     
                     elif centering_mode:
+                        with telemetry_lock:
+                            mode = current_mode
+                        
+                        if mode != "GUIDED":
+                            logger.info(f"Centering mode requires GUIDED mode - switching from {mode}")
+                            master.set_mode("GUIDED")
+                            time.sleep(0.5)
+                        
                         horizontal_res = 640
                         vertical_res = 480
                         
@@ -323,10 +356,19 @@ def landing_target_processor() -> None:
                             smoothed_y = 0.0
                         
                         velocity_gain = 0.3
-                        vx = smoothed_y * velocity_gain
+                        vx = -smoothed_y * velocity_gain
                         vy = smoothed_x * velocity_gain
                         
                         if current_time - last_command_time >= command_rate_limit:
+                            direction_msg = []
+                            if abs(vx) > 0.01:
+                                direction_msg.append("Forward" if vx > 0 else "Backward")
+                            if abs(vy) > 0.01:
+                                direction_msg.append("Right" if vy > 0 else "Left")
+                            if direction_msg:
+                                logger.info(f"Centering: {' + '.join(direction_msg)} (vx={vx:.2f}, vy={vy:.2f}, marker@{center_x:.0f},{center_y:.0f})",
+                                          direction=" + ".join(direction_msg), vx=vx, vy=vy, marker_x=center_x, marker_y=center_y)
+                            
                             send_local_ned_velocity(vx, vy, 0)
                             last_command_time = current_time
             
@@ -433,8 +475,10 @@ def process_command(command: str) -> None:
             logger.event("AUTO_LAND_COMMAND")
             logger.info("Action: Executing 'auto_land' command")
             try:
+                global landing_mode_initialized
                 centering_mode = False
                 landing_mode = True
+                landing_mode_initialized = False
                 
                 master.set_mode("LAND")
                 logger.info("Switching to LAND mode - precision landing active")
