@@ -350,6 +350,7 @@ def landing_target_processor() -> None:
                     elif centering_mode:
                         with telemetry_lock:
                             mode = current_mode
+                            current_alt = current_altitude
                         
                         if mode != "GUIDED":
                             logger.info(f"Centering mode requires GUIDED mode - switching from {mode}")
@@ -367,13 +368,24 @@ def landing_target_processor() -> None:
                         
                         smoothed_x, smoothed_y = smooth_angular_position(offset_x, offset_y, alpha=0.4)
                         
-                        deadzone = 0.1
+                        if current_alt < 2.0:
+                            deadzone = 0.08
+                            velocity_gain = 0.35
+                        elif current_alt < 5.0:
+                            deadzone = 0.1
+                            velocity_gain = 0.25
+                        elif current_alt < 8.0:
+                            deadzone = 0.12
+                            velocity_gain = 0.15
+                        else:
+                            deadzone = 0.15
+                            velocity_gain = 0.10
+                        
                         if abs(smoothed_x) < deadzone:
                             smoothed_x = 0.0
                         if abs(smoothed_y) < deadzone:
                             smoothed_y = 0.0
                         
-                        velocity_gain = 0.3
                         vx = -smoothed_y * velocity_gain
                         vy = smoothed_x * velocity_gain
                         
@@ -384,8 +396,8 @@ def landing_target_processor() -> None:
                             if abs(vy) > 0.01:
                                 direction_msg.append("Right" if vy > 0 else "Left")
                             if direction_msg:
-                                logger.info(f"Centering: {' + '.join(direction_msg)} (vx={vx:.2f}, vy={vy:.2f}, marker@{center_x:.0f},{center_y:.0f})",
-                                          direction=" + ".join(direction_msg), vx=vx, vy=vy, marker_x=center_x, marker_y=center_y)
+                                logger.info(f"Centering: {' + '.join(direction_msg)} (alt={current_alt:.1f}m, gain={velocity_gain:.2f}, vx={vx:.2f}, vy={vy:.2f}, marker@{center_x:.0f},{center_y:.0f})",
+                                          direction=" + ".join(direction_msg), altitude=current_alt, gain=velocity_gain, vx=vx, vy=vy, marker_x=center_x, marker_y=center_y)
                             
                             send_local_ned_velocity(vx, vy, 0)
                             last_command_time = current_time

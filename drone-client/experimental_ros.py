@@ -376,6 +376,7 @@ def landing_target_processor():
                     elif centering_mode:
                         with state_lock:
                             current_mode = vehicle_state["mode"]
+                            current_alt = vehicle_state["altitude"]
                         
                         if current_mode != "GUIDED":
                             print("Centering mode requires GUIDED mode - switching from {}".format(current_mode))
@@ -393,13 +394,24 @@ def landing_target_processor():
                         
                         smoothed_x, smoothed_y = smooth_angular_position(offset_x, offset_y, alpha=0.4)
                         
-                        deadzone = 0.1
+                        if current_alt < 2.0:
+                            deadzone = 0.08
+                            velocity_gain = 0.35
+                        elif current_alt < 5.0:
+                            deadzone = 0.1
+                            velocity_gain = 0.25
+                        elif current_alt < 8.0:
+                            deadzone = 0.12
+                            velocity_gain = 0.15
+                        else:
+                            deadzone = 0.15
+                            velocity_gain = 0.10
+                        
                         if abs(smoothed_x) < deadzone:
                             smoothed_x = 0.0
                         if abs(smoothed_y) < deadzone:
                             smoothed_y = 0.0
                         
-                        velocity_gain = 0.3
                         vx = -smoothed_y * velocity_gain
                         vy = smoothed_x * velocity_gain
                         
@@ -410,8 +422,8 @@ def landing_target_processor():
                             if abs(vy) > 0.01:
                                 direction_msg.append("Right" if vy > 0 else "Left")
                             if direction_msg:
-                                print("Centering: {} (vx={:.2f}, vy={:.2f}, marker@{:.0f},{:.0f})".format(
-                                    " + ".join(direction_msg), vx, vy, center_x, center_y))
+                                print("Centering: {} (alt={:.1f}m, gain={:.2f}, vx={:.2f}, vy={:.2f}, marker@{:.0f},{:.0f})".format(
+                                    " + ".join(direction_msg), current_alt, velocity_gain, vx, vy, center_x, center_y))
                             
                             send_local_ned_velocity(vx, vy, 0)
                             last_command_time = current_time
