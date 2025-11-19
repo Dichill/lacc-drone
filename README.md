@@ -2,7 +2,7 @@
 
 **Team Members**: Dichill Tomarong, Fahat Yousuf, Paola Ramirez, Sebastian Park, Marco Colin
 
-**Under the Guidance of Professor** Jayesh Bhakta
+**Under the Guidance of** Professor Jayesh Bhakta
 
 ---
 
@@ -23,7 +23,7 @@ For testing and development, the system can be run in a ROS Gazebo simulation en
 ![ROS Simulation Architecture](public/images/ROS%20Diagram.png)
 
 
-### **⚡ Key Differences from ROS Sim:**
+### **Key Differences from ROS Sim:**
 
 | Feature | ROS Simulation | Real Hardware |
 |---------|----------------|---------------|
