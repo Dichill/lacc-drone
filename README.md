@@ -33,6 +33,14 @@ For testing and development, the system can be run in a ROS Gazebo simulation en
 | **Communication** | DroneKit wrapper | Direct PyMAVLink |
 | **Environment** | Virtual 3D world | Real world flight |
 
+## Demo
+
+Watch our web-based ground control station controlling the drone in ROS Gazebo simulation:
+
+[![Web Interface Demo](https://img.youtube.com/vi/kPHsVJfyG78/0.jpg)](https://youtu.be/kPHsVJfyG78)
+
+[View Demo Video](https://youtu.be/kPHsVJfyG78)
+
 ## Project Structure
 
 ```

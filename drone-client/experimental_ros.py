@@ -421,9 +421,14 @@ def landing_target_processor():
                                 direction_msg.append("Forward" if vx > 0 else "Backward")
                             if abs(vy) > 0.01:
                                 direction_msg.append("Right" if vy > 0 else "Left")
-                            if direction_msg:
-                                print("Centering: {} (alt={:.1f}m, gain={:.2f}, vx={:.2f}, vy={:.2f}, marker@{:.0f},{:.0f})".format(
-                                    " + ".join(direction_msg), current_alt, velocity_gain, vx, vy, center_x, center_y))
+                            
+                            offset_info = "offset_x={:.2f} offset_y={:.2f}".format(offset_x, offset_y)
+                            position_info = "marker@({:.0f},{:.0f}) image_center@(320,240)".format(center_x, center_y)
+                            
+                            if direction_msg or abs(vx) > 0.01 or abs(vy) > 0.01:
+                                print("Centering: {} | alt={:.1f}m gain={:.2f} | vx={:.2f} vy={:.2f} | {} | {}".format(
+                                    " + ".join(direction_msg) if direction_msg else "Holding", 
+                                    current_alt, velocity_gain, vx, vy, offset_info, position_info))
                             
                             send_local_ned_velocity(vx, vy, 0)
                             last_command_time = current_time

@@ -395,9 +395,15 @@ def landing_target_processor() -> None:
                                 direction_msg.append("Forward" if vx > 0 else "Backward")
                             if abs(vy) > 0.01:
                                 direction_msg.append("Right" if vy > 0 else "Left")
-                            if direction_msg:
-                                logger.info(f"Centering: {' + '.join(direction_msg)} (alt={current_alt:.1f}m, gain={velocity_gain:.2f}, vx={vx:.2f}, vy={vy:.2f}, marker@{center_x:.0f},{center_y:.0f})",
-                                          direction=" + ".join(direction_msg), altitude=current_alt, gain=velocity_gain, vx=vx, vy=vy, marker_x=center_x, marker_y=center_y)
+                            
+                            offset_info = f"offset_x={offset_x:.2f} offset_y={offset_y:.2f}"
+                            position_info = f"marker@({center_x:.0f},{center_y:.0f}) image_center@(320,240)"
+                            
+                            if direction_msg or abs(vx) > 0.01 or abs(vy) > 0.01:
+                                logger.info(f"Centering: {' + '.join(direction_msg) if direction_msg else 'Holding'} | alt={current_alt:.1f}m gain={velocity_gain:.2f} | vx={vx:.2f} vy={vy:.2f} | {offset_info} | {position_info}",
+                                          direction=" + ".join(direction_msg) if direction_msg else "Holding", 
+                                          altitude=current_alt, gain=velocity_gain, vx=vx, vy=vy, 
+                                          offset_x=offset_x, offset_y=offset_y, marker_x=center_x, marker_y=center_y)
                             
                             send_local_ned_velocity(vx, vy, 0)
                             last_command_time = current_time
