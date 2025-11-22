@@ -2,11 +2,15 @@
 
 **Team Members**: Dichill Tomarong, Fahat Yousuf, Paola Ramirez, Sebastian Park, Marco Colin
 
-**Under the Guidance of** Professor Jayesh Bhakta
+**Under the Guidance of**: Professor Jayesh Bhakta
 
 ---
 
 A precision landing drone system featuring ArUco marker detection and a modern web-based ground control station. This project supports both real hardware deployment and ROS Gazebo simulation for development and testing.
+
+## SCCUR Conference Poster
+
+![LACC Drone Conference Poster](public/images/DronePoster.png)
 
 ## System Architecture
 
@@ -22,8 +26,7 @@ For testing and development, the system can be run in a ROS Gazebo simulation en
 
 ![ROS Simulation Architecture](public/images/ROS%20Diagram.png)
 
-
-### **Key Differences from ROS Sim:**
+### Key Differences
 
 | Feature | ROS Simulation | Real Hardware |
 |---------|----------------|---------------|
@@ -39,22 +42,22 @@ Watch our web-based ground control station controlling the drone in ROS Gazebo s
 
 [![Web Interface Demo](https://img.youtube.com/vi/kPHsVJfyG78/0.jpg)](https://youtu.be/kPHsVJfyG78)
 
-[View Demo Video](https://youtu.be/kPHsVJfyG78)
+[▶ View Demo Video](https://youtu.be/kPHsVJfyG78)
 
 ## Project Structure
 
 ```
 LACCDRONE/
-├── drone-client/          # Drone-side Python scripts
-│   ├── main.py           # Flight controller (real hardware)
-│   ├── main_ros_sim.py   # Flight controller (ROS simulation)
+├── drone-client/
+│   ├── main.py                      # Flight controller (real hardware)
+│   ├── main_ros_sim.py              # Flight controller (ROS simulation)
 │   ├── camera_streamer.py           # Camera streamer (real hardware)
 │   └── camera_streamer_ros_sim.py   # Camera streamer (ROS simulation)
 │
-└── ground-station/        # Next.js web application
-    ├── app/              # Next.js pages
-    ├── components/       # React components
-    └── hooks/            # Custom React hooks
+└── ground-station/
+    ├── app/                         # Next.js pages
+    ├── components/                  # React components
+    └── hooks/                       # Custom React hooks
 ```
 
 ## Features
@@ -75,11 +78,11 @@ LACCDRONE/
 
 ## Installation & Setup
 
-### 🚁 Drone Client Setup (Raspberry Pi)
+### 🚁 Drone Client (Raspberry Pi)
 
 #### 1. Flash Raspberry Pi OS
 
-Flash **Raspberry Pi OS (Legacy, 32-bit)** as it is compatible and much more stable with MAVLink and Serial communication with the Pixhawk 2.4.8.
+Flash **Raspberry Pi OS (Legacy, 32-bit)** for compatibility with MAVLink and Serial communication with Pixhawk 2.4.8.
 
 #### 2. Enable SSH
 
@@ -87,18 +90,19 @@ Flash **Raspberry Pi OS (Legacy, 32-bit)** as it is compatible and much more sta
 sudo raspi-config
 ```
 
-Navigate to "Interface Options" → "SSH" → Enable
+Navigate to **Interface Options** → **SSH** → **Enable**
 
 #### 3. Install Camera Support
 
-_Optional, only follow if you have a legacy camera_
+_Optional - Only required for legacy cameras._
+
 Follow this guide to install IMX708 Arducam or other legacy cameras:
 
 📹 [Camera Installation Guide](https://www.youtube.com/watch?v=l534zjr9Ys4)
 
 #### 4. Install MAVProxy
 
-Follow the official MAVLink installation guide:
+Follow the official installation guide:
 
 📚 [MAVProxy Installation Guide](https://ardupilot.org/mavproxy/docs/getting_started/download_and_installation.html#mavproxy-downloadinstalllinux)
 
@@ -108,20 +112,16 @@ Create a virtual environment with system site packages:
 
 ```bash
 python3 -m venv --system-site-packages env
-```
-
-Activate the environment:
-
-```bash
 source env/bin/activate
 ```
 
-Install required Python packages:
+Install required packages:
 
 ```bash
-# picamera 2 is optional, only install if you have a legacy camera.
 pip install pymavlink paho-mqtt opencv-contrib-python picamera2
 ```
+
+> **Note**: `picamera2` is optional, only install if you have a legacy camera.
 
 #### 6. Install MQTT Broker
 
@@ -131,13 +131,13 @@ Install Mosquitto:
 sudo apt install mosquitto mosquitto-clients
 ```
 
-Configure Mosquitto:
+Configure Mosquitto by editing the config file:
 
 ```bash
 sudo vim /etc/mosquitto/mosquitto.conf
 ```
 
-Add these lines to the config:
+Add these lines:
 
 ```conf
 # Standard MQTT on port 1883
@@ -160,45 +160,32 @@ sudo systemctl restart mosquitto
 
 #### 7. Enable Serial Communication
 
-Enable serial interface:
-
 ```bash
 sudo raspi-config
 ```
 
-Navigate to "Interface Options" → "Serial Port"
+Navigate to **Interface Options** → **Serial Port**
 - Disable serial console
 - Enable serial port hardware
 
-Follow the Raspberry Pi MAVLink setup guide:
-
-📚 [Raspberry Pi via MAVLink](https://ardupilot.org/dev/docs/raspberry-pi-via-mavlink.html)
+Follow the setup guide: 📚 [Raspberry Pi via MAVLink](https://ardupilot.org/dev/docs/raspberry-pi-via-mavlink.html)
 
 #### 8. Run the Drone Client
 
-Make the startup script executable:
-
 ```bash
 chmod +x start_drone.sh
-```
-
-Run the drone client:
-
-```bash
 ./start_drone.sh
 ```
 
 ---
 
-### 🌐 Ground Station Setup
+### 🌐 Ground Station
 
 #### 1. Install Node.js
 
-Head over to https://nodejs.org/en and install Node.js.
+Download and install Node.js from [nodejs.org](https://nodejs.org/en)
 
 #### 2. Install PNPM
-
-Once done, in your terminal, install pnpm.
 
 ```bash
 npm i -g pnpm
@@ -206,50 +193,58 @@ npm i -g pnpm
 
 #### 3. Install Packages
 
-in the ground-station directory, we need to install the packages required to run the web interface.
+Navigate to the `ground-station` directory and install dependencies:
 
 ```bash
+cd ground-station
 pnpm i
 ```
 
-#### 4. All Set!
-
-You can now run our web interface!
+#### 4. Run the Application
 
 ```bash
 pnpm run dev
 ```
 
+The ground station will be available at `http://localhost:3000`
+
 ---
 
-### 🧪 ROS Simulation Setup
+### 🧪 ROS Simulation
 
-The ROS Simulation Setup requires a certain setup that could only be found in Drone Dojo's Course. Unfortunately we can't really provide the necessary files as it is licensed under **Drone Dojo**, we highly recommend checking him out and his courses (_see credits below_) if you would still like to proceed. 
+The ROS simulation setup requires files from **Drone Dojo's Course**, which are licensed and cannot be redistributed. We highly recommend checking out [Drone Dojo](https://dojofordrones.com/) if you want to proceed with ROS simulation.
 
-The installation of the **drone-client** is relatively similar though it does not require you to make a **Virtual Environment**. Instead, it is managed by packages from **catkin_make** e.g. **example_pkg** where you can put these files in the script folder:
+The installation is similar to the drone client, but does not require a virtual environment. Instead, it uses ROS packages managed by `catkin_make`.
+
+Place the simulation files in your ROS package scripts folder:
 
 ```bash
 main_ros_sim.py
 camera_stream_ros_sim.py
 ```
 
-And then you can run these commands to execute it to ROS. (_ArduCopter & Gazebo ROS should be running already!_)
+Run the scripts (ensure ArduCopter & Gazebo ROS are running):
 
 ```bash
 rosrun example_pkg ./main_ros_sim.py
 rosrun example_pkg ./camera_stream_ros_sim.py
 ```
 
-**NOTE: MAKE SURE TO CHANGE THE IP ADDRESS IN THE LIB/CONFIG.TS OF THE GROUND STATION TO YOUR CONNECTED VIRTUAL MACHINE.**
+> **Important**: Update the IP address in `ground-station/lib/config.ts` to match your virtual machine's IP address.
 
-## Official Documentation
+---
 
-If you want to see our whole documentation for the drone itself, you can head over to our [Docmost](https://doc.drakos.cc/share/jm4apukrza/p/lacc-drone-project-rbcaXCtKhc), though incomplete, we hope that it is somewhat of use to your next drone project.
+## Documentation
+
+For detailed documentation, visit our [Docmost documentation](https://doc.drakos.cc/share/jm4apukrza/p/lacc-drone-project-rbcaXCtKhc).
 
 ## Credits
-This project is the result of many of the open source projects that were somewhat combined together, without these projects, this would have been really hard to do.
 
-- Caleb - also known as Drone Dojo provides amazing resources on how to make drones especially making precision landing drones, we highly recommend to check out his amazing work! https://dojofordrones.com/
-- Carson Stark - https://github.com/Carson-Stark/AutonomousDrone
-- Egnchen - https://github.com/egnchen/rasp-cv-tag-detection
-- Rosetta Drone - https://github.com/RosettaDrone/vision-landing-2
+This project builds upon the work of many open-source contributors:
+
+- **Caleb (Drone Dojo)** - Comprehensive drone and precision landing resources: [dojofordrones.com](https://dojofordrones.com/)
+- **Carson Stark** - [AutonomousDrone](https://github.com/Carson-Stark/AutonomousDrone)
+- **Egnchen** - [rasp-cv-tag-detection](https://github.com/egnchen/rasp-cv-tag-detection)
+- **Rosetta Drone** - [vision-landing-2](https://github.com/RosettaDrone/vision-landing-2)
+
+We are grateful for their contributions to the open-source drone community.
