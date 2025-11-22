@@ -38,11 +38,21 @@ For testing and development, the system can be run in a ROS Gazebo simulation en
 
 ## Demo
 
+### Web Interface Demo
+
 Watch our web-based ground control station controlling the drone in ROS Gazebo simulation:
 
 [![Web Interface Demo](https://img.youtube.com/vi/kPHsVJfyG78/0.jpg)](https://youtu.be/kPHsVJfyG78)
 
 [▶ View Demo Video](https://youtu.be/kPHsVJfyG78)
+
+### Development Timelapse
+
+Watch the journey of building this drone from start to finish:
+
+[![Development Timelapse](https://img.youtube.com/vi/sDJA-0r_t70/0.jpg)](https://youtu.be/sDJA-0r_t70)
+
+[▶ View Timelapse](https://youtu.be/sDJA-0r_t70)
 
 ## Project Structure
 
