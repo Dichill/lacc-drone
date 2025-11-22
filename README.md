@@ -224,14 +224,16 @@ pnpm run dev
 
 ### 🧪 ROS Simulation Setup
 
-The ROS Simulation Setup requires a certain setup that could only be found in Drone Dojo's Course. Unfortunately we can't really provide the necessary files as it is licensed under **Drone Dojo**, we highly recommend checking him out and his courses (_you can see him in the credits_) if you would still like to proceed. The installation of the **drone-client** is relatively similar though it does not require you to make a **virtual_environment**. Instead, it is managed by packages from **catkin_make** e.g. **example_pkg** where you can put these files in the script folder:
+The ROS Simulation Setup requires a certain setup that could only be found in Drone Dojo's Course. Unfortunately we can't really provide the necessary files as it is licensed under **Drone Dojo**, we highly recommend checking him out and his courses (_see credits below_) if you would still like to proceed. 
+
+The installation of the **drone-client** is relatively similar though it does not require you to make a **Virtual Environment**. Instead, it is managed by packages from **catkin_make** e.g. **example_pkg** where you can put these files in the script folder:
 
 ```bash
 main_ros_sim.py
 camera_stream_ros_sim.py
 ```
 
-And then you can run this command to execute it to ROS. (_ArduCopter & Gazebo ROS should be running already!_)
+And then you can run these commands to execute it to ROS. (_ArduCopter & Gazebo ROS should be running already!_)
 
 ```bash
 rosrun example_pkg ./main_ros_sim.py
@@ -239,6 +241,10 @@ rosrun example_pkg ./camera_stream_ros_sim.py
 ```
 
 **NOTE: MAKE SURE TO CHANGE THE IP ADDRESS IN THE LIB/CONFIG.TS OF THE GROUND STATION TO YOUR CONNECTED VIRTUAL MACHINE.**
+
+## Official Documentation
+
+If you want to see our whole documentation for the drone itself, you can head over to our [Docmost](https://doc.drakos.cc/share/jm4apukrza/p/lacc-drone-project-rbcaXCtKhc), though incomplete, we hope that it is somewhat of use to your next drone project.
 
 ## Credits
 This project is the result of many of the open source projects that were somewhat combined together, without these projects, this would have been really hard to do.
