@@ -73,13 +73,172 @@ LACCDRONE/
 - **Ground Station**: Next.js, React, TypeScript
 - **Simulation**: ROS, Gazebo, DroneKit
 
-## Quick Start
+## Installation & Setup
 
-Coming soon...
+### 🚁 Drone Client Setup (Raspberry Pi)
 
-## License
+#### 1. Flash Raspberry Pi OS
 
-Coming soon...
+Flash **Raspberry Pi OS (Legacy, 32-bit)** as it is compatible and much more stable with MAVLink and Serial communication with the Pixhawk 2.4.8.
+
+#### 2. Enable SSH
+
+```bash
+sudo raspi-config
+```
+
+Navigate to "Interface Options" → "SSH" → Enable
+
+#### 3. Install Camera Support
+
+_Optional, only follow if you have a legacy camera_
+Follow this guide to install IMX708 Arducam or other legacy cameras:
+
+📹 [Camera Installation Guide](https://www.youtube.com/watch?v=l534zjr9Ys4)
+
+#### 4. Install MAVProxy
+
+Follow the official MAVLink installation guide:
+
+📚 [MAVProxy Installation Guide](https://ardupilot.org/mavproxy/docs/getting_started/download_and_installation.html#mavproxy-downloadinstalllinux)
+
+#### 5. Setup Python Environment
+
+Create a virtual environment with system site packages:
+
+```bash
+python3 -m venv --system-site-packages env
+```
+
+Activate the environment:
+
+```bash
+source env/bin/activate
+```
+
+Install required Python packages:
+
+```bash
+# picamera 2 is optional, only install if you have a legacy camera.
+pip install pymavlink paho-mqtt opencv-contrib-python picamera2
+```
+
+#### 6. Install MQTT Broker
+
+Install Mosquitto:
+
+```bash
+sudo apt install mosquitto mosquitto-clients
+```
+
+Configure Mosquitto:
+
+```bash
+sudo vim /etc/mosquitto/mosquitto.conf
+```
+
+Add these lines to the config:
+
+```conf
+# Standard MQTT on port 1883
+listener 1883
+protocol mqtt
+
+# WebSocket support on port 9001 (required for browser)
+listener 9001
+protocol websockets
+
+# Allow anonymous connections (for development)
+allow_anonymous true
+```
+
+Restart Mosquitto:
+
+```bash
+sudo systemctl restart mosquitto
+```
+
+#### 7. Enable Serial Communication
+
+Enable serial interface:
+
+```bash
+sudo raspi-config
+```
+
+Navigate to "Interface Options" → "Serial Port"
+- Disable serial console
+- Enable serial port hardware
+
+Follow the Raspberry Pi MAVLink setup guide:
+
+📚 [Raspberry Pi via MAVLink](https://ardupilot.org/dev/docs/raspberry-pi-via-mavlink.html)
+
+#### 8. Run the Drone Client
+
+Make the startup script executable:
+
+```bash
+chmod +x start_drone.sh
+```
+
+Run the drone client:
+
+```bash
+./start_drone.sh
+```
+
+---
+
+### 🌐 Ground Station Setup
+
+#### 1. Install Node.js
+
+Head over to https://nodejs.org/en and install Node.js.
+
+#### 2. Install PNPM
+
+Once done, in your terminal, install pnpm.
+
+```bash
+npm i -g pnpm
+```
+
+#### 3. Install Packages
+
+in the ground-station directory, we need to install the packages required to run the web interface.
+
+```bash
+pnpm i
+```
+
+#### 4. All Set!
+
+You can now run our web interface!
+
+```bash
+pnpm run dev
+```
+
+---
+
+### 🧪 ROS Simulation Setup
+
+The ROS Simulation Setup requires a certain setup that could only be found in Drone Dojo's Course. Unfortunately we can't really provide the necessary files as it is licensed under **Drone Dojo**, we highly recommend checking him out and his courses (_you can see him in the credits_) if you would still like to proceed. The installation of the **drone-client** is relatively similar though it does not require you to make a **virtual_environment**. Instead, it is managed by packages from **catkin_make** e.g. **example_pkg** where you can put these files in the script folder:
+
+```bash
+main_ros_sim.py
+camera_stream_ros_sim.py
+```
+
+And then you can run this command to execute it to ROS. (_ArduCopter & Gazebo ROS should be running already!_)
+
+```bash
+rosrun example_pkg ./main_ros_sim.py
+rosrun example_pkg ./camera_stream_ros_sim.py
+```
+
+**NOTE: MAKE SURE TO CHANGE THE IP ADDRESS IN THE LIB/CONFIG.TS OF THE GROUND STATION TO YOUR CONNECTED VIRTUAL MACHINE.**
 
 ## Credits
 This project is the result of many of the open source projects that were somewhat combined together, without these projects, this would have been really hard to do.
