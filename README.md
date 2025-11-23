@@ -1,6 +1,11 @@
 # LACC Drone Project
 
-**Team Members**: Dichill Tomarong, Fahat Yousuf, Paola Ramirez, Sebastian Park, Marco Colin
+**Team Members**: 
+- [Dichill Tomarong](https://www.linkedin.com/in/dichill/)
+- [Fahat Yousuf](https://www.linkedin.com/in/fahatyousuf/)
+- [Paola Ramirez](https://www.linkedin.com/in/paolaramirezcs/)
+- [Sebastian Park](https://www.linkedin.com/in/sebastian-park-0639a4376/)
+- Marco Colin
 
 **Under the Guidance of**: Professor Jayesh Bhakta
 
